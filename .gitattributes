@@ -1,0 +1,7 @@
+# Mac/Linux runners need LF line endings on these, even when committed from Windows.
+*.sh text eol=lf
+*.command text eol=lf
+.github/workflows/*.yml text eol=lf
+*.py text eol=lf
+*.iss text eol=crlf
+*.bat text eol=crlf
