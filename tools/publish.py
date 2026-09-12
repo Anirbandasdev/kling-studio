@@ -17,6 +17,7 @@ files are left in dist\\release\\ with instructions for uploading them by hand.
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -55,8 +56,17 @@ def build():
         sys.exit("build_exe.bat failed, nothing was published.")
 
 
-def gh_available():
-    return shutil.which("gh") is not None
+def gh_exe():
+    """gh on PATH, or where winget puts it when this shell's PATH is still stale"""
+    found = shutil.which("gh")
+    if found:
+        return found
+    guesses = [Path(r"C:\Program Files\GitHub CLI\gh.exe"),
+               Path(r"C:\Program Files (x86)\GitHub CLI\gh.exe")]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        guesses.append(Path(local) / "GitHubCLI" / "bin" / "gh.exe")
+    return next((str(g) for g in guesses if g.is_file()), None)
 
 
 def main(argv=None):
@@ -103,8 +113,9 @@ def main(argv=None):
     print(f"  sha256    {digest}")
     print(f"  manifest  {out / 'latest.json'}")
 
-    if args.no_upload or not gh_available():
-        if not gh_available():
+    gh = gh_exe()
+    if args.no_upload or not gh:
+        if not gh:
             print("\n  gh (GitHub CLI) isn't installed, so nothing was uploaded. Either:")
             print("    winget install GitHub.cli   then   gh auth login")
             print(f"    and re-run:  publish.bat {version} --no-build")
@@ -117,7 +128,7 @@ def main(argv=None):
 
     print(f"  uploading release {tag} to {args.repo}…")
     notes = "\n".join(f"- {n}" for n in manifest["notes"])
-    cmd = ["gh", "release", "create", tag, str(asset), str(out / "latest.json"),
+    cmd = [gh, "release", "create", tag, str(asset), str(out / "latest.json"),
            "--repo", args.repo, "--title", f"Kling Studio {version}", "--notes", notes, "--latest"]
     if subprocess.run(cmd).returncode:
         print("\n  gh failed (is the repo created and are you logged in with `gh auth login`?).")
