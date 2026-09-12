@@ -2081,6 +2081,14 @@ function wire() {
     if (act.dataset.act === "tour") openTutorial(); else loadExample();
   });
   $("#logToggle").onclick = () => { S.logOpen = !S.logOpen; if (S.batch) renderLog(); };
+  // no browser context menu: this should feel like an app, not a web page. It stays
+  // in typing fields and over selected text, so right-click paste and copy still work.
+  window.addEventListener("contextmenu", e => {
+    if (e.target.closest("input, textarea, [contenteditable]")) return;
+    const picked = window.getSelection && String(window.getSelection() || "");
+    if (picked && picked.trim()) return;
+    e.preventDefault();
+  });
   window.addEventListener("hashchange", route);
   window.addEventListener("dragover", e => e.preventDefault());
   window.addEventListener("drop", e => e.preventDefault());
