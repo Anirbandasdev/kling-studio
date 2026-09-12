@@ -308,41 +308,26 @@ footer b { color: var(--ink); font-weight: 600; }
 footer .sp { margin-left: auto; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
-/* ---------- paper ---------- */
-@page { size: A4; margin: 15mm 14mm 16mm; }
+/* ---------- paper: the page as it looks on screen, on a big sheet ---------- */
+@page { size: 320mm 452mm; margin: 16mm 15mm 18mm; }
 @media print {
-  :root {
-    --display: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;   /* embeds in the PDF; the variable display face does not */
-    --paper: #ffffff; --card: #ffffff; --sunk: #f4f3f9;
-    --ink: #14121f; --ink-2: #3d3a51; --ink-3: #6b6881;
-    --line: #ddd9e9; --line-2: #c7c2d8; --shadow: none;
-  }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { background: #fff; font-size: 10.5pt; line-height: 1.6; }
+  body { font-size: 15px; }
   .wrap { max-width: none; padding: 0; }
   .layout { display: block; }
   .toc { display: none; }
-  .masthead { padding: 0 0 18pt; }
-  h1 { font-size: 28pt; font-weight: 700; letter-spacing: -.02em; }
-  h2 { font-size: 19pt; font-weight: 700; letter-spacing: -.015em; }
-  h3, .track-head h3 { font-size: 13pt; }
-  .steps h4 { font-size: 11.5pt; }
-  .app-h { font-size: 15pt; }
-  .standfirst { font-size: 12pt; }
-  section { padding-top: 20pt; }
-  section, .steps > li, .body-copy, .lede { break-inside: auto; }
+  .masthead { padding-top: 0; }
+  section { padding-top: 40px; }
   h2, h3, h4, .eyebrow { break-after: avoid; }
-  figure, .note, .track, .flow-card, .dl, .os, .table-scroll, .paths, .shot, .clip, .dialog { break-inside: avoid; }
-  .tracks, .dl-grid, .flow { display: block; }
-  .tracks > * + *, .dl-grid > * + *, .flow > * + * { margin-top: 10pt; }
-  .flow-arrow { display: none; }
-  .shot, .os, .dl, .track { box-shadow: none; }
-  .prompt-box, .table-scroll, .paths { overflow: visible; }
-  a { color: var(--ink); text-decoration: none; font-weight: 600; }
-  .dl b + span::after, footer a::after { content: " — github.com/Anirbandasdev/kling-studio/releases/latest"; font-weight: 400; color: var(--ink-3); }
-  footer { margin-top: 24pt; }
+  figure, .note, .track, .flow-card, .dl, .os, .table-scroll, .paths, .shot, .clip, .dialog, .steps > li { break-inside: avoid; }
+  .tracks { grid-template-columns: 1fr 1fr; }
+  .dl-grid { grid-template-columns: 1fr 1fr; }
+  .flow { grid-template-columns: 1fr 26px 1fr 26px 1fr; }
+  .clips { grid-template-columns: repeat(3, 1fr); }
+  .app-row { grid-template-columns: 150px minmax(0, 1fr); }
+  a { text-decoration: none; }
+  footer { margin-top: 48px; }
 }
-
 </style>
 
 <div class="wrap">
