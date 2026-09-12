@@ -56,6 +56,35 @@ def build():
         sys.exit("build_exe.bat failed, nothing was published.")
 
 
+def git(*args, check=True):
+    r = subprocess.run(["git", *args], cwd=str(ROOT), capture_output=True, text=True)
+    if check and r.returncode:
+        sys.exit(f"git {' '.join(args)} failed: {r.stderr.strip()}")
+    return r.stdout.strip()
+
+
+def commit_the_bump(version):
+    """Commit and push just the version bump, so the tag lands on the built code.
+
+    Without this the release tag points at whatever was already on the remote, and
+    the installers CI builds from that tag carry the previous version number.
+    """
+    if not (ROOT / ".git").exists() or not shutil.which("git"):
+        print("  git       not a repo, so the tag will point at whatever is on the remote")
+        return None
+    if git("status", "--porcelain", "app.py", "installer.iss"):
+        git("add", "app.py", "installer.iss")
+        git("commit", "-m", f"Release {version}")
+        print(f"  git       committed the bump to {version}")
+    else:
+        print("  git       version files were already committed")
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    if git("remote"):
+        git("push", "origin", branch)
+        print(f"  git       pushed {branch}")
+    return git("rev-parse", "HEAD")
+
+
 def gh_exe():
     """gh on PATH, or where winget puts it when this shell's PATH is still stale"""
     found = shutil.which("gh")
@@ -87,6 +116,7 @@ def main(argv=None):
     bump(version)
     if not args.no_build:
         build()
+    commit = commit_the_bump(version)
 
     built = ROOT / "dist" / "Kling Studio.exe"
     if not built.is_file():
@@ -130,12 +160,16 @@ def main(argv=None):
     notes = "\n".join(f"- {n}" for n in manifest["notes"])
     cmd = [gh, "release", "create", tag, str(asset), str(out / "latest.json"),
            "--repo", args.repo, "--title", f"Kling Studio {version}", "--notes", notes, "--latest"]
+    if commit:
+        cmd += ["--target", commit]      # tag exactly the code that was built
     if subprocess.run(cmd).returncode:
         print("\n  gh failed (is the repo created and are you logged in with `gh auth login`?).")
         print(f"  The files are ready in {out} if you'd rather upload them by hand.")
         return 1
     print(f"\nDone. Kling Studio {version} is live — the app offers it within a few hours,")
     print("or straight away with Settings → Updates → Check now.")
+    print("GitHub Actions is now building the installers for both platforms and will")
+    print(f"attach them to  https://github.com/{args.repo}/releases/tag/{tag}")
     return 0
 
 

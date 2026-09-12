@@ -52,13 +52,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $setup = Get-ChildItem "dist\Kling Studio Setup *.exe" | Select-Object -First 1
+          $setup = Get-ChildItem "dist\KlingStudio-Setup-*.exe" | Select-Object -First 1
           if (-not $setup) { throw "no installer was produced" }
           gh release upload $env:TAG "$($setup.FullName)" --clobber --repo $env:GITHUB_REPOSITORY
       - uses: actions/upload-artifact@v4
         with:
           name: Kling-Studio-Windows
-          path: dist/Kling Studio Setup *.exe
+          path: dist/KlingStudio-Setup-*.exe
 
   mac:
     runs-on: macos-latest
