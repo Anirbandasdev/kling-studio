@@ -21,6 +21,16 @@ v2 batches stay in v2.
 5. **Generate videos.** Confirmed separately, and only frames that exist can be
    animated.
 
+## The handbook
+
+The illustrated guide for whoever is using the app - installing on Windows and
+macOS, connecting a kie.ai key, the whole workflow, what things cost and what to
+do when a clip fails - lives in `docs/handbook.html` and is published at
+
+  https://claude.ai/code/artifact/c88836b1-0f97-4dae-98da-1431ce46b8f4
+
+Send that link with the installer.
+
 ## Installing it for a coworker
 
 The app opens in its own window using **Microsoft Edge**, which is built into

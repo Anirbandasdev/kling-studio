@@ -1,0 +1,844 @@
+<title>Kling Studio Handbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+
+<style>
+:root {
+  /* page: cool paper, violet-biased neutrals, one violet accent + a teal second */
+  --paper: #f6f5fa;
+  --card: #ffffff;
+  --sunk: #f0eef7;
+  --ink: #191727;
+  --ink-2: #4c4863;
+  --ink-3: #7e7a95;
+  --line: #e3e0ee;
+  --line-2: #cfcade;
+  --accent: #5a41f0;
+  --accent-soft: #ece9ff;
+  --teal: #0b7f93;
+  --teal-soft: #e0f4f7;
+  --good: #0e7a55;
+  --good-soft: #e0f4ec;
+  --warn: #8f5a00;
+  --warn-soft: #fdf0da;
+  --bad: #b53232;
+  --bad-soft: #fdeceb;
+  --shadow: 0 1px 2px rgba(25, 23, 39, .05), 0 12px 28px -20px rgba(25, 23, 39, .35);
+
+  /* the app is dark in every theme, so its screenshots keep their own palette */
+  --app-bg: #0a0b11;
+  --app-panel: #16161f;
+  --app-panel-2: #1e1e29;
+  --app-line: #2a2a38;
+  --app-text: #f0f1f6;
+  --app-text-2: #a5abbd;
+  --app-text-3: #6f7588;
+  --app-violet: #8b7bff;
+  --app-cyan: #22d3ee;
+  --app-green: #3ddc97;
+  --app-amber: #ffc44d;
+  --app-red: #ff7b7b;
+
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d0c14;
+    --card: #16151f;
+    --sunk: #1b1a26;
+    --ink: #f1eff8;
+    --ink-2: #b6b1c9;
+    --ink-3: #837e99;
+    --line: #262433;
+    --line-2: #353248;
+    --accent: #a898ff;
+    --accent-soft: #241f3e;
+    --teal: #5ad0e2;
+    --teal-soft: #12303a;
+    --good: #4fd39a;
+    --good-soft: #12302a;
+    --warn: #eeb95c;
+    --warn-soft: #33270f;
+    --bad: #ff8c8c;
+    --bad-soft: #341d22;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 16px 34px -24px rgba(0, 0, 0, .9);
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0d0c14;
+  --card: #16151f;
+  --sunk: #1b1a26;
+  --ink: #f1eff8;
+  --ink-2: #b6b1c9;
+  --ink-3: #837e99;
+  --line: #262433;
+  --line-2: #353248;
+  --accent: #a898ff;
+  --accent-soft: #241f3e;
+  --teal: #5ad0e2;
+  --teal-soft: #12303a;
+  --good: #4fd39a;
+  --good-soft: #12302a;
+  --warn: #eeb95c;
+  --warn-soft: #33270f;
+  --bad: #ff8c8c;
+  --bad-soft: #341d22;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 16px 34px -24px rgba(0, 0, 0, .9);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 16px/1.65 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+img { max-width: 100%; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+h1, h2, h3, h4 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -.02em; }
+p { margin: 0; }
+code { font: 600 .88em/1.4 var(--mono); background: var(--sunk); border: 1px solid var(--line); border-radius: 5px; padding: .1em .38em; }
+
+/* ---------- shell ---------- */
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px 96px; }
+.masthead { padding: 44px 0 28px; border-bottom: 1px solid var(--line); }
+.brandline { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; }
+.glyph { width: 38px; height: 38px; flex: none; }
+.brandline b { font: 700 15px/1 var(--display); letter-spacing: -.01em; }
+.brandline span { color: var(--ink-3); font-size: 13px; }
+h1 { font-size: clamp(38px, 6vw, 60px); font-weight: 800; line-height: 1.02; letter-spacing: -.035em; }
+.standfirst { margin-top: 18px; max-width: 60ch; font-size: 18px; color: var(--ink-2); }
+.meta-row { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 26px; font-size: 13.5px; color: var(--ink-3); }
+.meta-row b { color: var(--ink); font-weight: 600; }
+
+.layout { display: grid; grid-template-columns: 1fr; gap: 0; }
+@media (min-width: 1060px) {
+  .layout { grid-template-columns: 208px minmax(0, 1fr); gap: 56px; align-items: start; }
+  .toc { position: sticky; top: 28px; }
+}
+.toc { padding: 30px 0 0; font-size: 13.5px; }
+.toc-label { font: 600 11px/1 var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 12px; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; counter-reset: toc; }
+.toc a { display: flex; gap: 10px; padding: 6px 8px; border-radius: 7px; color: var(--ink-2); text-decoration: none; }
+.toc a:hover { background: var(--sunk); color: var(--ink); }
+.toc a::before { counter-increment: toc; content: counter(toc); color: var(--ink-3); font: 600 12px/1.5 var(--mono); }
+
+section { padding: 52px 0 0; scroll-margin-top: 24px; }
+.eyebrow { font: 600 11.5px/1 var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
+h2 { font-size: clamp(26px, 3.4vw, 34px); font-weight: 700; }
+h3 { font-size: 19px; font-weight: 700; margin-top: 6px; }
+.lede { margin-top: 14px; max-width: 62ch; color: var(--ink-2); }
+.body-copy { margin-top: 16px; max-width: 62ch; }
+.body-copy + .body-copy { margin-top: 12px; }
+
+/* ---------- steps ---------- */
+.steps { list-style: none; margin: 26px 0 0; padding: 0; display: flex; flex-direction: column; gap: 22px; counter-reset: step; }
+.steps > li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 16px; }
+.steps > li::before {
+  counter-increment: step; content: counter(step);
+  width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); font: 700 15px/1 var(--display);
+}
+.steps h4 { font-size: 16.5px; font-weight: 700; }
+.steps p { margin-top: 5px; color: var(--ink-2); font-size: 15px; max-width: 58ch; }
+
+/* ---------- two platform tracks ---------- */
+.tracks { display: grid; gap: 26px; margin-top: 30px; }
+@media (min-width: 900px) { .tracks { grid-template-columns: 1fr 1fr; gap: 34px; } }
+.track { border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding: 24px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; }
+.track-head { display: flex; align-items: center; gap: 11px; padding-bottom: 16px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+.track-head svg { width: 22px; height: 22px; color: var(--ink); }
+.track-head h3 { margin: 0; font-size: 18px; }
+.track-head span { margin-left: auto; font: 600 11px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+.track .steps > li::before { background: var(--teal-soft); color: var(--teal); }
+
+/* ---------- callouts ---------- */
+.note { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; margin-top: 20px; padding: 14px 16px; border-radius: 12px; font-size: 14.5px; line-height: 1.55; background: var(--sunk); border-left: 3px solid var(--line-2); color: var(--ink-2); }
+.note svg { width: 20px; height: 20px; margin-top: 1px; }
+.note b { color: var(--ink); }
+.note.warn { background: var(--warn-soft); border-left-color: var(--warn); color: var(--ink); }
+.note.warn svg { color: var(--warn); }
+.note.good { background: var(--good-soft); border-left-color: var(--good); color: var(--ink); }
+.note.good svg { color: var(--good); }
+.note.key { background: var(--accent-soft); border-left-color: var(--accent); color: var(--ink); }
+.note.key svg { color: var(--accent); }
+
+/* ---------- tables ---------- */
+.table-scroll { overflow-x: auto; margin-top: 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th { font: 600 11.5px/1.3 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); background: var(--sunk); }
+tbody tr:last-child td { border-bottom: 0; }
+td b { font-weight: 600; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font: 600 12px/1.6 var(--body); }
+.pill.free { background: var(--good-soft); color: var(--good); }
+.pill.paid { background: var(--accent-soft); color: var(--accent); }
+
+/* ---------- app screenshots (fixed dark palette in both themes) ---------- */
+figure { margin: 28px 0 0; }
+.shot {
+  background: var(--app-bg); border: 1px solid var(--app-line); border-radius: 14px;
+  overflow: hidden; color: var(--app-text); font-size: 13px; line-height: 1.5;
+  box-shadow: 0 20px 44px -28px rgba(10, 10, 25, .8);
+}
+.shot-bar { display: flex; align-items: center; gap: 7px; padding: 10px 14px; background: var(--app-panel); border-bottom: 1px solid var(--app-line); }
+.shot-bar i { width: 9px; height: 9px; border-radius: 50%; background: #34343f; }
+.shot-bar span { margin-left: 8px; font-size: 11.5px; color: var(--app-text-3); }
+.shot-body { padding: 18px; display: grid; gap: 16px; }
+figcaption { margin-top: 11px; font-size: 13.5px; color: var(--ink-3); max-width: 62ch; }
+figcaption b { color: var(--ink-2); font-weight: 600; }
+
+.app-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; }
+@media (max-width: 620px) { .app-row { grid-template-columns: 1fr; } }
+.side { display: flex; flex-direction: column; gap: 8px; border-right: 1px solid var(--app-line); padding-right: 14px; }
+@media (max-width: 620px) { .side { border-right: 0; border-bottom: 1px solid var(--app-line); padding: 0 0 14px; } }
+.side-logo { display: flex; align-items: center; gap: 8px; font: 700 13px/1 var(--display); }
+.side-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--app-text-2); }
+.side-item svg { width: 13px; height: 13px; color: var(--app-text-3); }
+.cta { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; border-radius: 10px; font: 600 12.5px/1 var(--body); color: #0b0913; background: linear-gradient(135deg, #8b7bff, #6ea8ff 55%, #22d3ee); }
+.cta .step-dot { display: grid; place-items: center; width: 17px; height: 17px; border-radius: 5px; background: rgba(11, 9, 19, .22); font-weight: 700; font-size: 11px; }
+.ghost { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border-radius: 9px; border: 1px solid var(--app-line); color: var(--app-text-2); font-size: 12px; }
+.app-h { font: 700 20px/1.1 var(--display); letter-spacing: -.02em; }
+.app-h em { font-style: normal; color: var(--app-cyan); }
+.app-sub { color: var(--app-text-2); font-size: 12.5px; }
+.panel { background: var(--app-panel); border: 1px solid var(--app-line); border-radius: 12px; padding: 14px; }
+.panel-label { font: 600 10px/1 var(--body); letter-spacing: .12em; text-transform: uppercase; color: var(--app-text-3); margin-bottom: 10px; }
+.prompt-box { background: #07070d; border: 1px solid var(--app-line); border-radius: 10px; padding: 13px 14px; font: 400 11.5px/1.8 var(--mono); color: var(--app-text-2); white-space: pre-wrap; overflow-x: auto; }
+.prompt-box b { color: var(--app-violet); font-weight: 600; }
+.prompt-box i { color: var(--app-amber); font-style: normal; font-weight: 600; }
+.prompt-box u { color: var(--app-cyan); text-decoration: none; font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--app-line); background: var(--app-panel-2); font-size: 11.5px; color: var(--app-text-2); }
+.chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--app-green); }
+.chip b { color: var(--app-text); font-weight: 600; }
+.clips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 560px) { .clips { grid-template-columns: repeat(2, 1fr); } }
+.clip { border: 1px solid var(--app-line); border-radius: 11px; overflow: hidden; background: var(--app-panel); }
+.clip .thumb { aspect-ratio: 9 / 14; position: relative; background: repeating-linear-gradient(45deg, #0b0c12 0 10px, #101119 10px 20px); display: grid; place-items: center; font-size: 10.5px; color: var(--app-text-3); text-align: center; padding: 8px; }
+.clip .thumb.frame-1 { background: linear-gradient(165deg, #b4741f, #6a3f12 70%); }
+.clip .thumb.frame-2 { background: linear-gradient(165deg, #1f6aa8, #123b63 70%); }
+.clip .thumb.frame-3 { background: linear-gradient(165deg, #2f8b5c, #17482f 70%); }
+.clip .tag { position: absolute; top: 7px; right: 7px; display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; background: rgba(6, 7, 11, .78); font-size: 10px; font-weight: 600; color: var(--app-text-2); }
+.clip .tag.ok { color: var(--app-green); }
+.clip .tag.bad { color: var(--app-red); }
+.clip .tag.busy { color: #c3b9ff; }
+.clip .num { position: absolute; top: 7px; left: 7px; width: 19px; height: 19px; border-radius: 6px; background: rgba(6, 7, 11, .78); display: grid; place-items: center; font-size: 10px; font-weight: 700; }
+.clip .meta { padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; }
+.clip .meta b { font-size: 11.5px; font-weight: 600; }
+.clip .meta p { font-size: 10.5px; color: var(--app-text-2); line-height: 1.45; }
+.clip .meta p span { color: var(--app-text-3); font-weight: 600; font-size: 9px; letter-spacing: .07em; text-transform: uppercase; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.mini { padding: 4px 8px; border-radius: 7px; border: 1px solid var(--app-line); font-size: 10.5px; color: var(--app-text-2); }
+.mini.danger { color: var(--app-red); border-color: rgba(255, 123, 123, .35); }
+
+.dialog { max-width: 430px; margin: 0 auto; background: var(--app-panel); border: 1px solid var(--app-line); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.dialog h5 { margin: 0; font: 700 15px/1.2 var(--display); }
+.dialog .why { font-size: 12px; color: var(--app-text-2); }
+.spend { display: flex; align-items: center; gap: 13px; padding: 13px; border-radius: 11px; background: linear-gradient(135deg, rgba(139, 123, 255, .2), rgba(34, 211, 238, .07)); border: 1px solid rgba(139, 123, 255, .3); }
+.spend-n { font: 800 22px/1 var(--display); letter-spacing: -.02em; }
+.spend-n small { font: 500 11px/1 var(--body); color: var(--app-text-2); margin-left: 4px; }
+.spend-x { font-size: 11px; color: var(--app-text-2); margin-top: 4px; }
+.kv { display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 6px 12px; font-size: 11.5px; }
+.kv dt { color: var(--app-text-3); margin: 0; }
+.kv dd { margin: 0; color: var(--app-text-2); word-break: break-word; }
+.dialog-foot { display: flex; justify-content: flex-end; gap: 7px; }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 11.5px; font-weight: 600; color: var(--app-text-2); }
+.field .input { background: #07070d; border: 1px solid var(--app-line); border-radius: 9px; padding: 9px 11px; font: 400 11.5px/1.3 var(--mono); color: var(--app-text-3); display: flex; justify-content: space-between; gap: 10px; }
+.field .input b { color: var(--app-text); font-weight: 500; }
+.field .hint { font-size: 11px; color: var(--app-text-3); line-height: 1.5; }
+
+.update-chip { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 11px; background: linear-gradient(135deg, rgba(61, 220, 151, .18), rgba(34, 211, 238, .07)); border: 1px solid rgba(61, 220, 151, .38); }
+.update-chip b { display: block; font-size: 12px; }
+.update-chip span { font-size: 10.5px; color: var(--app-text-2); }
+
+/* ---------- OS dialogs ---------- */
+.os { border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
+.os-win { background: #0f6cbd; color: #fff; padding: 20px 22px; font-family: "Segoe UI", var(--body); }
+.os-win h5 { margin: 0 0 12px; font: 600 19px/1.25 "Segoe UI", var(--display); }
+.os-win p { font-size: 13.5px; line-height: 1.55; opacity: .95; }
+.os-win dl { display: grid; grid-template-columns: 78px 1fr; gap: 4px 8px; margin: 14px 0 18px; font-size: 13px; }
+.os-win dt { opacity: .85; }
+.os-win dd { margin: 0; }
+.os-win .os-btns { display: flex; gap: 10px; justify-content: flex-end; }
+.os-win .os-btn { padding: 7px 18px; font-size: 13px; background: #0f6cbd; border: 1px solid rgba(255, 255, 255, .85); }
+.os-win .os-btn.solid { background: #fff; color: #0f6cbd; border-color: #fff; font-weight: 600; }
+.os-mac { background: #edeceb; color: #1d1d1f; padding: 22px; text-align: center; font-family: -apple-system, "SF Pro Text", var(--body); }
+:root[data-theme="dark"] .os-mac, :root:not([data-theme="light"]) .os-mac { background: #2c2b30; color: #f2f2f4; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .os-mac { background: #edeceb; color: #1d1d1f; } }
+.os-mac h5 { margin: 12px 0 8px; font-size: 15px; font-weight: 700; }
+.os-mac p { font-size: 12.5px; line-height: 1.5; opacity: .8; max-width: 34ch; margin: 0 auto; }
+.os-mac .os-btns { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
+.os-mac .os-btn { padding: 6px 20px; border-radius: 7px; font-size: 12.5px; border: 1px solid rgba(0, 0, 0, .18); background: rgba(255, 255, 255, .7); color: inherit; }
+.os-mac .os-btn.solid { background: #2f6df6; border-color: #2f6df6; color: #fff; font-weight: 600; }
+.os-mac .mac-icon { width: 44px; height: 44px; margin: 0 auto; }
+
+.dl-grid { display: grid; gap: 12px; margin-top: 24px; }
+@media (min-width: 760px) { .dl-grid { grid-template-columns: 1fr 1fr; } }
+.dl { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); text-decoration: none; color: inherit; box-shadow: var(--shadow); }
+.dl:hover { border-color: var(--accent); }
+.dl svg { width: 26px; height: 26px; flex: none; color: var(--accent); }
+.dl b { display: block; font: 700 15px/1.2 var(--display); }
+.dl span { font-size: 13px; color: var(--ink-3); }
+
+.flow { display: grid; gap: 12px; margin-top: 28px; align-items: stretch; }
+@media (min-width: 780px) { .flow { grid-template-columns: 1fr 26px 1fr 26px 1fr; } }
+.flow-card { border: 1px solid var(--line); border-radius: 14px; padding: 18px; background: var(--card); box-shadow: var(--shadow); }
+.flow-card b { display: block; font: 700 16px/1.2 var(--display); margin-bottom: 6px; }
+.flow-card span { font-size: 13.5px; color: var(--ink-2); }
+.flow-card em { display: block; font-style: normal; margin-top: 10px; font: 600 11px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+.flow-arrow { display: grid; place-items: center; color: var(--line-2); }
+.flow-arrow svg { width: 22px; height: 22px; }
+@media (max-width: 779px) { .flow-arrow { transform: rotate(90deg); } }
+
+.paths { margin-top: 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 18px 20px; font: 400 13px/1.9 var(--mono); overflow-x: auto; }
+.paths b { color: var(--accent); font-weight: 600; }
+.paths span { color: var(--ink-3); }
+
+footer { margin-top: 64px; padding-top: 26px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; font-size: 13.5px; color: var(--ink-3); }
+footer b { color: var(--ink); font-weight: 600; }
+footer .sp { margin-left: auto; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+<header class="masthead">
+  <div class="brandline">
+    <svg class="glyph" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="g1" x1="6" y1="8" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#22d3ee"/><stop offset=".5" stop-color="#5a41f0"/><stop offset="1" stop-color="#3ddc97"/>
+        </linearGradient>
+      </defs>
+      <path d="M14 12a6 6 0 0 1 10-4.4L52 32 24 56.4A6 6 0 0 1 14 52z" fill="url(#g1)"/>
+      <path d="M26 24v16l14-8z" fill="#fff"/>
+    </svg>
+    <div>
+      <b>Kling Studio</b>
+      <span>&nbsp;· version 3.0.4</span>
+    </div>
+  </div>
+  <h1>How to use Kling Studio</h1>
+  <p class="standfirst">Paste one prompt, get the still frames, check them, turn them into video. This is everything from installing it to collecting the finished clips — for Windows and for Mac.</p>
+  <div class="meta-row">
+    <span>Frames drawn by <b>Nano Banana 2</b></span>
+    <span>Video by <b>Kling 3.0</b></span>
+    <span>Both billed through <b>your own kie.ai account</b></span>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="toc" aria-label="Contents">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#what">What it does</a></li>
+      <li><a href="#install">Install it</a></li>
+      <li><a href="#key">Connect your key</a></li>
+      <li><a href="#prompt">Get the prompt</a></li>
+      <li><a href="#frames">Make the frames</a></li>
+      <li><a href="#review">Check and fix</a></li>
+      <li><a href="#videos">Make the videos</a></li>
+      <li><a href="#costs">What it costs</a></li>
+      <li><a href="#updates">Updates</a></li>
+      <li><a href="#trouble">When it goes wrong</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+  <section id="what">
+    <div class="eyebrow">The shape of it</div>
+    <h2>Two buttons, in order</h2>
+    <p class="lede">Every clip is made twice: first as a still picture, then as five seconds of video built from that picture. You look at the stills in between, which is the whole point — a bad frame is cheap to redo, a bad video is not.</p>
+
+    <div class="flow">
+      <div class="flow-card">
+        <b>Master prompt</b>
+        <span>Claude writes it. One block of text with an image prompt and a motion prompt for every clip.</span>
+        <em>In the chat</em>
+      </div>
+      <div class="flow-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h14"/><path d="m13 6 6 6-6 6"/></svg></div>
+      <div class="flow-card">
+        <b>Frames</b>
+        <span>Nano Banana 2 draws one still per clip. You review them and redraw anything that came out wrong.</span>
+        <em>Step 1 · 12 credits each</em>
+      </div>
+      <div class="flow-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h14"/><path d="m13 6 6 6-6 6"/></svg></div>
+      <div class="flow-card">
+        <b>Videos</b>
+        <span>Kling 3.0 animates each approved frame and the mp4 files land in your output folder.</span>
+        <em>Step 2 · 90 credits each</em>
+      </div>
+    </div>
+
+    <div class="note key">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>
+      <div><b>Nothing is ever sent without you pressing a button.</b> Both generate steps show the exact credit cost first and wait for you to confirm. Checking on work already paid for is always free.</div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="eyebrow">Step one</div>
+    <h2>Install it</h2>
+    <p class="lede">Both installers live on the same page. Download the one for your computer, then follow your column below.</p>
+
+    <div class="dl-grid">
+      <a class="dl" href="https://github.com/Anirbandasdev/kling-studio/releases/latest">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.7 10.2 4.7v6.9H3zM11.2 4.5 21 3.1v8.5h-9.8zM3 12.6h7.2v6.8L3 18.4zM11.2 12.6H21v8.4l-9.8-1.4z"/></svg>
+        <div><b>Windows</b><span>KlingStudio-Setup-3.0.4.exe · 14 MB</span></div>
+      </a>
+      <a class="dl" href="https://github.com/Anirbandasdev/kling-studio/releases/latest">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.5-.2-2.8.8-3.6.8s-1.9-.8-3.1-.8c-1.6 0-3.1.9-3.9 2.4-1.7 2.9-.4 7.2 1.2 9.5.8 1.2 1.8 2.4 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.7 1.3 0 2.1-1.2 2.9-2.3.9-1.3 1.3-2.6 1.3-2.7 0 0-2.6-1-2.7-3.9zM14 5.8c.7-.8 1.1-1.9 1-3-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 2.9 1.1.1 2.2-.6 2.9-1.4z"/></svg>
+        <div><b>macOS</b><span>KlingStudio-3.0.4-mac.dmg · 14 MB</span></div>
+      </a>
+    </div>
+
+    <div class="tracks">
+      <div class="track">
+        <div class="track-head">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.7 10.2 4.7v6.9H3zM11.2 4.5 21 3.1v8.5h-9.8zM3 12.6h7.2v6.8L3 18.4zM11.2 12.6H21v8.4l-9.8-1.4z"/></svg>
+          <h3>Windows</h3><span>10 or 11</span>
+        </div>
+        <ol class="steps">
+          <li>
+            <div>
+              <h4>Run the Setup file</h4>
+              <p>Double-click <code>KlingStudio-Setup-3.0.4.exe</code> from your Downloads folder.</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h4>Get past the blue box</h4>
+              <p>Windows stops apps it hasn't seen before. Click <b>More info</b>, then <b>Run anyway</b>. It is not a virus warning — it means the app has no paid signing certificate.</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h4>Click through the installer</h4>
+              <p>It reads you a short page of notes, then installs into your own user folder. No administrator password, no IT ticket.</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h4>Open it from the Start menu</h4>
+              <p>Search for <b>Kling Studio</b>. The same blue box may appear once more on first launch — same answer.</p>
+            </div>
+          </li>
+        </ol>
+
+        <figure>
+          <div class="os os-win">
+            <h5>Windows protected your PC</h5>
+            <p>Microsoft Defender SmartScreen prevented an unrecognized app from starting. Running this app might put your PC at risk.</p>
+            <dl>
+              <dt>App:</dt><dd>KlingStudio-Setup-3.0.4.exe</dd>
+              <dt>Publisher:</dt><dd>Unknown publisher</dd>
+            </dl>
+            <div class="os-btns">
+              <span class="os-btn solid">Run anyway</span>
+              <span class="os-btn">Don't run</span>
+            </div>
+          </div>
+          <figcaption><b>Expected.</b> "Run anyway" only appears after you click <b>More info</b> first.</figcaption>
+        </figure>
+      </div>
+
+      <div class="track">
+        <div class="track-head">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.5-.2-2.8.8-3.6.8s-1.9-.8-3.1-.8c-1.6 0-3.1.9-3.9 2.4-1.7 2.9-.4 7.2 1.2 9.5.8 1.2 1.8 2.4 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.7 1.3 0 2.1-1.2 2.9-2.3.9-1.3 1.3-2.6 1.3-2.7 0 0-2.6-1-2.7-3.9zM14 5.8c.7-.8 1.1-1.9 1-3-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 2.9 1.1.1 2.2-.6 2.9-1.4z"/></svg>
+          <h3>macOS</h3><span>Apple or Intel</span>
+        </div>
+        <ol class="steps">
+          <li>
+            <div>
+              <h4>Open the .dmg</h4>
+              <p>Double-click <code>KlingStudio-3.0.4-mac.dmg</code>. A window opens with the app and an Applications shortcut.</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h4>Drag it to Applications</h4>
+              <p>Drop <b>Kling Studio</b> onto the Applications folder in that window, then eject the disk image.</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h4>Right-click to open, the first time only</h4>
+              <p>In Applications, <b>right-click Kling Studio → Open</b>, then <b>Open</b> again in the box. Double-clicking it the normal way will just be refused until you've done this once.</p>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h4>Still blocked?</h4>
+              <p>System Settings → Privacy &amp; Security, scroll down, and click <b>Open Anyway</b> next to the Kling Studio message.</p>
+            </div>
+          </li>
+        </ol>
+
+        <figure>
+          <div class="os os-mac">
+            <svg class="mac-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4" y="9" width="16" height="12" rx="2.5"/><path d="M8 9V6.5a4 4 0 0 1 8 0V9"/></svg>
+            <h5>"Kling Studio" can't be opened because Apple cannot check it for malicious software</h5>
+            <p>This software needs to be updated. Contact the developer for more information.</p>
+            <div class="os-btns">
+              <span class="os-btn solid">OK</span>
+              <span class="os-btn">Move to Trash</span>
+            </div>
+          </div>
+          <figcaption><b>Expected.</b> Right-click → Open replaces this box with one that has an <b>Open</b> button.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="key">
+    <div class="eyebrow">Step two</div>
+    <h2>Connect your kie.ai key</h2>
+    <p class="lede">The app doesn't have an account of its own — it runs on yours. That means the credits are yours, the history is yours, and nobody shares a login.</p>
+
+    <ol class="steps">
+      <li>
+        <div>
+          <h4>Sign in at kie.ai</h4>
+          <p>Go to <a href="https://kie.ai">kie.ai</a>, sign in, and open the API key page from your dashboard.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h4>Copy the key</h4>
+          <p>It's a long string of letters and numbers. Copy the whole thing.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h4>Paste it into Settings</h4>
+          <p>In Kling Studio, click <b>Settings</b> in the bottom-left corner, paste into <b>kie.ai API key</b>, and press Save. On a fresh install the app asks for it straight away.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h4>Put credits on the account</h4>
+          <p>Top up on kie.ai. If the balance runs out mid-batch the app stops immediately, keeps everything already paid for, and says so on the batch page.</p>
+        </div>
+      </li>
+    </ol>
+
+    <figure>
+      <div class="shot">
+        <div class="shot-bar"><i></i><i></i><i></i><span>Kling Studio — Settings</span></div>
+        <div class="shot-body">
+          <div class="field">
+            <label>kie.ai API key</label>
+            <div class="input"><b>••••••••••••••••••••••••••••</b><span>Show</span></div>
+            <div class="hint">Copy it from your kie.ai dashboard. Saved only on this computer, in %APPDATA%\KlingStudio\config.json</div>
+          </div>
+          <div class="field">
+            <label>Output folder</label>
+            <div class="input"><b>C:\Users\you\Documents\Kling Studio</b><span>Browse…</span></div>
+            <div class="hint">Each batch gets its own folder here with its frames and videos.</div>
+          </div>
+          <div class="field">
+            <label>Credits per frame</label>
+            <div class="input"><b>12</b></div>
+            <div class="hint">kie.ai charges 12 credits for each Nano Banana 2 frame. Videos are 18 credits per second in Pro, so 90 for a 5-second clip.</div>
+          </div>
+        </div>
+      </div>
+      <figcaption>Settings, with the key already saved. It is never shown again after you save it — only the last four characters, so you can tell which key is in there.</figcaption>
+    </figure>
+
+    <div class="note good">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 19.2 6v5.4c0 4.3-2.9 7.9-7.2 9.4-4.3-1.5-7.2-5.1-7.2-9.4V6z"/><path d="m9.2 12 2.1 2.1 3.6-4"/></svg>
+      <div>Your key stays on your own machine. It is not sent anywhere except kie.ai, and it is not in the app's code or on GitHub.</div>
+    </div>
+  </section>
+
+  <section id="prompt">
+    <div class="eyebrow">Step three</div>
+    <h2>Get the master prompt from Claude</h2>
+    <p class="lede">You never type the prompt block by hand. When the script is final, run the skill in your Claude chat and it writes the whole thing.</p>
+
+    <p class="body-copy">Type <code>/kling-studio</code> in the chat. It reads the shots you've been working on, asks you for a batch name, and prints one block. Select it, copy it, done — no files, no setup, nothing to upload.</p>
+
+    <figure>
+      <div class="shot">
+        <div class="shot-bar"><i></i><i></i><i></i><span>What the skill hands back</span></div>
+        <div class="shot-body">
+          <div class="prompt-box">batch: c150
+<i>settings: 9:16 · 5s · pro · sound off · 2K</i>
+
+1.
+<b>image:</b> wide shot of a clay diya burning on a dark wooden table, warm rim light
+<u>motion:</u> the flame flickers and dances, thin wisps of smoke drift upward
+
+2.
+<b>image:</b> close up of a steaming cup of black coffee on the same dark table
+<u>motion:</u> steam rises and curls slowly, the surface ripples
+<i>ref: frame 1</i></div>
+        </div>
+      </div>
+      <figcaption>Four kinds of line, and that's the lot.</figcaption>
+    </figure>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Line</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td class="num">batch:</td><td>Names the batch, its folder, and every clip inside it (<code>c150_clip01</code> and so on).</td></tr>
+          <tr><td class="num">image:</td><td>What the still picture shows. This is what Nano Banana 2 draws.</td></tr>
+          <tr><td class="num">motion:</td><td>What moves. This is what Kling 3.0 animates, using the frame above it.</td></tr>
+          <tr><td class="num">ref: frame 1</td><td>Keeps a face or product identical across clips — frame 1 is drawn first, then reused as the reference.</td></tr>
+          <tr><td class="num">ref: needed</td><td>The app will stop and ask <em>you</em> for a picture for that clip before it draws anything.</td></tr>
+          <tr><td class="num">settings:</td><td>Optional. Only appears when something differs from 9:16 · 5s · Pro · sound off · 2K.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="frames">
+    <div class="eyebrow">Step four</div>
+    <h2>Paste it in and make the frames</h2>
+    <p class="lede">Paste into the big box on the New batch screen. The app reads the block back to you immediately, so a mistake turns up before it costs anything.</p>
+
+    <figure>
+      <div class="shot">
+        <div class="shot-bar"><i></i><i></i><i></i><span>Kling Studio — New batch</span></div>
+        <div class="shot-body">
+          <div class="app-row">
+            <div class="side">
+              <div class="side-logo">
+                <svg width="16" height="16" viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M14 12a6 6 0 0 1 10-4.4L52 32 24 56.4A6 6 0 0 1 14 52z" fill="url(#g1)"/><path d="M26 24v16l14-8z" fill="#fff"/></svg>
+                Kling Studio
+              </div>
+              <div class="cta" style="margin:4px 0 8px">New batch</div>
+              <div class="side-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.3a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.2-2.5 3.8" stroke-linecap="round"/><path d="M12 17.2h.01" stroke-linecap="round"/></svg> How it works</div>
+              <div class="side-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.6l2 2.2h7.4A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg> Output folder</div>
+              <div class="side-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M4.2 7.5l1.7 1M18.1 15.5l1.7 1M4.2 16.5l1.7-1M18.1 8.5l1.7-1" stroke-linecap="round"/></svg> Settings</div>
+            </div>
+            <div style="display:grid;gap:12px">
+              <div>
+                <div class="app-h">New <em>batch</em></div>
+                <div class="app-sub">Drop in the master prompt Claude wrote for you.</div>
+              </div>
+              <div class="panel">
+                <div class="panel-label">Master prompt</div>
+                <div class="prompt-box">batch: c150
+
+1.
+<b>image:</b> wide shot of a clay diya burning on a dark table
+<u>motion:</u> the flame flickers, wisps of smoke sway</div>
+                <div class="chips" style="margin-top:11px">
+                  <span class="chip"><i></i>Name <b>c150</b></span>
+                  <span class="chip"><i></i>Clips <b>6</b></span>
+                  <span class="chip"><i></i>Image prompts <b>6/6</b></span>
+                  <span class="chip"><i></i>References <b>1</b></span>
+                </div>
+              </div>
+              <div style="display:flex;justify-content:flex-end">
+                <div class="cta"><span class="step-dot">1</span> Generate 6 frames · ≈ 72</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption>Green dots mean the app understood that part. A line it can't place is listed underneath as ignored rather than dropped quietly.</figcaption>
+    </figure>
+
+    <p class="body-copy">Press the big button. If any clip was marked <code>ref: needed</code>, a window opens for that clip first and waits for a picture — drop a file on it, pick one, or reuse another clip's frame. Then you get one confirmation for the whole run:</p>
+
+    <figure>
+      <div class="shot">
+        <div class="shot-bar"><i></i><i></i><i></i><span>Confirm before spending</span></div>
+        <div class="shot-body">
+          <div class="dialog">
+            <div>
+              <h5>Generate 3 frames?</h5>
+              <div class="why">Nothing is sent to kie.ai until you confirm.</div>
+            </div>
+            <div class="spend">
+              <div>
+                <div class="spend-n">≈ 36<small>credits</small></div>
+                <div class="spend-x">12 credits per frame × 3</div>
+              </div>
+            </div>
+            <dl class="kv">
+              <dt>Clips</dt><dd>c150_clip01, c150_clip02, c150_clip03</dd>
+              <dt>Settings</dt><dd>2K · 9:16 · nano-banana-2</dd>
+            </dl>
+            <div class="dialog-foot"><span class="mini">Cancel</span><span class="cta">Spend ≈ 36 credits</span></div>
+          </div>
+        </div>
+      </div>
+      <figcaption>Cancel sends nothing. While it runs you can close the window — the batch keeps going and the files still download.</figcaption>
+    </figure>
+  </section>
+
+  <section id="review">
+    <div class="eyebrow">Step five</div>
+    <h2>Check the frames, fix what's wrong</h2>
+    <p class="lede">This is the part worth slowing down for. Six fingers, a third arm, a mug floating in mid-air — fix it here while it's still a 12-credit picture, not after Kling has lovingly animated it.</p>
+
+    <figure>
+      <div class="shot">
+        <div class="shot-bar"><i></i><i></i><i></i><span>Kling Studio — c150</span></div>
+        <div class="shot-body">
+          <div class="clips">
+            <div class="clip">
+              <div class="thumb frame-1"><span class="num">1</span><span class="tag ok">Frame ready</span></div>
+              <div class="meta">
+                <b>c150_clip01</b>
+                <p><span>Image</span> wide shot of a clay diya on a dark table</p>
+                <div class="btn-row"><span class="mini">Prompts</span><span class="mini">Frame</span><span class="mini">Video</span></div>
+              </div>
+            </div>
+            <div class="clip">
+              <div class="thumb frame-2"><span class="num">2</span><span class="tag busy">Drawing…</span></div>
+              <div class="meta">
+                <b>c150_clip02</b>
+                <p><span>Image</span> close up of a steaming cup of coffee</p>
+                <div class="btn-row"><span class="mini">Working…</span></div>
+              </div>
+            </div>
+            <div class="clip">
+              <div class="thumb"><span class="num">3</span><span class="tag bad">kie.ai failed it</span>Frame not drawn yet</div>
+              <div class="meta">
+                <b>c150_clip03</b>
+                <p><span>Image</span> overhead shot of hands tearing a roti</p>
+                <div class="btn-row"><span class="mini">Prompts</span><span class="mini">Frame</span><span class="mini">Use my picture</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption>Three states at once: done, working, and rejected by kie.ai. A failed card prints the reason underneath so you know what to change.</figcaption>
+    </figure>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Button</th><th>What it does</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td><b>Prompts</b></td><td>Reword the image or motion prompt. Only changes the text — nothing is made.</td><td><span class="pill free">Free</span></td></tr>
+          <tr><td><b>Frame</b></td><td>Redraw just that frame, with the prompt open for a tweak first.</td><td><span class="pill paid">12</span></td></tr>
+          <tr><td><b>Video</b></td><td>Re-render just that video from the frame it already has.</td><td><span class="pill paid">90</span></td></tr>
+          <tr><td><b>Use my picture</b></td><td>Put your own image in as the frame. Dragging a file straight onto the card does the same.</td><td><span class="pill free">Free</span></td></tr>
+          <tr><td><b>Play</b></td><td>Watch the finished clip, or open it in your video player.</td><td><span class="pill free">Free</span></td></tr>
+          <tr><td><b>Delete</b></td><td>Removes the whole batch folder — frames, videos, everything. Asks first, can't be undone.</td><td><span class="pill free">Free</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="videos">
+    <div class="eyebrow">Step six</div>
+    <h2>Make the videos</h2>
+    <p class="lede">Same button, second step. Only clips that already have a frame can be animated, and the credits are confirmed again separately.</p>
+
+    <p class="body-copy">When everything is finished the button stops being a button — it turns into a green <b>All done</b> marker, and each card plays its clip when you hover it. <b>Open folder</b> shows you the files:</p>
+
+    <div class="paths">c150<span>/</span>
+  <b>frames/</b>            <span>c150_clip01.png, c150_clip02.png …</span>
+  <b>videos/</b>            <span>c150_clip01.mp4, c150_clip02.mp4 …</span>
+  refs/               <span>reference pictures you attached</span>
+  job.json            <span>the prompts and settings for this batch</span>
+  state.json          <span>what is done, what failed</span>
+  activity.log        <span>everything shown under Activity</span></div>
+
+    <div class="note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h12v7a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 8.5h1.6a2.7 2.7 0 0 1 0 5.4H16"/><path d="M4.5 21.5h11"/></svg>
+      <div>Six clips take a few minutes. You can close the window while it works — the batch carries on and the files still arrive.</div>
+    </div>
+  </section>
+
+  <section id="costs">
+    <div class="eyebrow">Money</div>
+    <h2>What it costs</h2>
+    <p class="lede">Everything is priced per item, in kie.ai credits, and the app always shows the total before it spends anything.</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>What</th><th>Model</th><th class="num">Credits</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><b>One frame</b></td><td>nano-banana-2</td><td class="num">12</td><td>Same price whether it's the first attempt or a redraw</td></tr>
+          <tr><td><b>One 5-second video</b></td><td>kling-3.0 · Pro</td><td class="num">90</td><td>18 credits per second — a 10-second clip is 180</td></tr>
+          <tr><td><b>A 6-clip batch</b></td><td>both</td><td class="num">612</td><td>72 of frames + 540 of video, start to finish</td></tr>
+          <tr><td><b>Checking on a running job</b></td><td>—</td><td class="num">0</td><td>Polling, re-checks and retries of downloads are free</td></tr>
+          <tr><td><b>Your own picture as a frame</b></td><td>—</td><td class="num">0</td><td>Drag it in and skip the drawing step entirely</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note warn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.5 2.9 20.2h18.2z"/><path d="M12 10v4.4"/><path d="M12 17.4h.01"/></svg>
+      <div>If kie.ai changes the frame price, correct it in <b>Settings → Credits per frame</b> and every estimate follows. Leaving the box empty puts it back to 12.</div>
+    </div>
+  </section>
+
+  <section id="updates">
+    <div class="eyebrow">Keeping current</div>
+    <h2>Updates arrive on their own</h2>
+    <p class="lede">The app checks for a new version a few seconds after it starts, and every six hours after that. You'll see a green chip above the sidebar buttons.</p>
+
+    <figure>
+      <div class="shot">
+        <div class="shot-bar"><i></i><i></i><i></i><span>Bottom-left corner</span></div>
+        <div class="shot-body">
+          <div class="update-chip" style="max-width:260px">
+            <div><b>Version 3.0.5 is ready</b><span>Click to see what's new</span></div>
+          </div>
+        </div>
+      </div>
+      <figcaption>Clicking it shows the list of changes and an <b>Install and restart</b> button.</figcaption>
+    </figure>
+
+    <div class="tracks">
+      <div class="track">
+        <div class="track-head"><h3>On Windows</h3><span>One click</span></div>
+        <p class="body-copy" style="margin-top:0">Press <b>Install and restart</b>. The app downloads the new build, checks it against a published checksum, closes, swaps itself over and reopens. No admin rights. SmartScreen may ask once more after the swap — <b>More info → Run anyway</b>.</p>
+      </div>
+      <div class="track">
+        <div class="track-head"><h3>On macOS</h3><span>One drag</span></div>
+        <p class="body-copy" style="margin-top:0">Press <b>Release page</b>, download the new <code>.dmg</code>, and drag the app into Applications over the old one. macOS won't let an app replace itself, so this part stays manual.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="trouble">
+    <div class="eyebrow">Reference</div>
+    <h2>When it goes wrong</h2>
+    <p class="lede">Every failure prints its reason on the clip card. Here is what each one means and what to do about it.</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>What it says</th><th>What happened</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td><b>kie.ai failed it</b></td><td>The model rejected the prompt — usually content moderation, occasionally a wording it can't parse.</td><td>Edit the prompt, then press <b>Frame</b> or <b>Video</b> on that card. <span class="pill paid">costs that one clip</span></td></tr>
+          <tr><td><b>Timed out</b> / <b>Check failed</b> / <b>Download failed</b></td><td>The work may well be finished at kie.ai — the app just lost track of it.</td><td>The big button offers a free re-check. <span class="pill free">Free</span></td></tr>
+          <tr><td><b>Couldn't send</b></td><td>The request never reached kie.ai, so nothing was charged.</td><td>The big button sends it again.</td></tr>
+          <tr><td><b>Needs a reference</b></td><td>The prompt said <code>ref: needed</code> and no picture has been supplied yet.</td><td>Add the picture in the popup, or reuse another clip's frame. <span class="pill free">Free</span></td></tr>
+          <tr><td><b>Reference missing</b></td><td>This clip copies from a frame that never arrived.</td><td>Fix that frame first, then this one.</td></tr>
+          <tr><td><b>The run stopped early</b></td><td>A rejected API key or an empty balance. Everything already paid for is kept.</td><td>Check the key in Settings, or top up on kie.ai, then press the big button again.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5a2 2 0 0 1-2 2H8.5L4 20V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/><path d="M9 10h.01M12.5 10h.01M16 10h.01"/></svg>
+      <div>Still stuck? Open the batch folder and send <b>activity.log</b> and anything inside <b>responses/</b> — that's the raw answer kie.ai gave, and it says exactly what went wrong.</div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Built by <b>Anirban</b>. Powered by coffee.</span>
+    <span class="sp">Kling Studio 3.0.4 · <a href="https://github.com/Anirbandasdev/kling-studio/releases/latest">Downloads and release notes</a></span>
+  </footer>
+
+  </main>
+</div>
+</div>
