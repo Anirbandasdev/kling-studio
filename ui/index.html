@@ -1874,13 +1874,16 @@ function openUpdate() {
         <div class="hint">${installing ? "Swapping the app over and restarting…" : `${d.progress || 0}% downloaded`}</div></div>` : ""}
       ${d.error ? `<div class="note error" style="margin-top:16px">${esc(d.error)}</div>` : ""}
       ${!working && d.busy ? '<p class="modal-note">A batch is running, so the update has to wait. Let it finish, or stop it first.</p>' : ""}
-      ${!working && !d.can_install ? '<p class="modal-note">This copy runs from Python, so it can\'t replace itself. Open the release page and copy the new build over the old one.</p>' : ""}`;
+      ${!working && !(d.can_install && d.has_download) ? `<p class="modal-note">${esc(
+        d.platform === "mac" ? "On macOS an update is a download: open the release page, take the .dmg and drag the new app into Applications over the old one."
+        : !d.has_download ? "That release has no build for this computer yet — the release page has everything that is ready."
+        : "This copy runs from Python, so it can't replace itself. Open the release page and copy the new build over the old one.")}</p>` : ""}`;
     const foot = $("#upFoot", back);
     foot.innerHTML = working
       ? '<button class="btn" data-up="hide">Hide</button>'
       : `<button class="btn" data-up="page">Release page</button>
          <button class="btn" data-up="close">Not now</button>
-         <button class="btn btn-primary" data-up="install"${d.busy || !d.can_install ? " disabled" : ""}>Install and restart</button>`;
+         <button class="btn btn-primary" data-up="install"${d.busy || !d.can_install || !d.has_download ? " disabled" : ""}>Install and restart</button>`;
     if (installing) foot.innerHTML = "";
     if (working) timer = setTimeout(() => refreshUpdate(), 800);
   };

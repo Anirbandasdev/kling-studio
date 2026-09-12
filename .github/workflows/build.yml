@@ -1,43 +1,60 @@
-# Builds all distributables in the cloud, so you don't need a Mac.
-# Re-index trigger: touch this file if the workflow doesn't appear under Actions.
-# Put this repo on GitHub, then: Actions tab -> "Build apps" -> Run workflow.
-# Afterwards download from the run's Artifacts section and send to coworkers:
-#   "Kling-Studio-Windows"  ->  Setup .exe (Start Menu, uninstaller)
-#   "Kling-Studio-Mac"      ->  .dmg installer + .app.zip (either works)
+# Builds the installers for both platforms and attaches them to the release.
 #
-# Assumes the repo root IS the v2 folder (app.py, build_exe.bat next to .github/).
-# If your repo root is the parent folder instead, move this file up to
-# <root>/.github/workflows/build.yml and add `working-directory: v2` to each run step.
+# You never run this by hand. `publish.bat 3.1.0` creates the GitHub release,
+# which fires this workflow: the Windows runner builds the Setup .exe, the Mac
+# runner builds the .app, .dmg and .zip, and both get uploaded to that same
+# release. The Mac job also adds a "mac" section to latest.json, so Macs learn
+# about new versions too.
+#
+# Manual run: Actions -> "Build installers" -> Run workflow -> type the tag (v3.1.0).
 
-name: Build apps
+name: Build installers
 
 on:
-  workflow_dispatch:  # manual Run button
-  push:
-    tags: ["v*"]      # also auto-builds when you push a tag like v2.3.0
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and attach to, e.g. v3.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
   windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: python -m pip install pyinstaller
       - run: .\build_exe.bat
       - name: Install Inno Setup
-        run: winget install --id JRSoftware.InnoSetup -e --silent --accept-package-agreements --accept-source-agreements
+        run: choco install innosetup --no-progress -y
       - name: Compile installer
-        # winget installs machine-wide on CI runners but per-user on some PCs: check both
         run: |
           $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-                    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
-                    "C:\Program Files\Inno Setup 6\ISCC.exe") |
+                    "C:\Program Files\Inno Setup 6\ISCC.exe",
+                    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") |
                   Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $iscc) { throw "ISCC.exe not found after Inno Setup install" }
+          if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
           Write-Host "Using $iscc"
           & $iscc installer.iss
+      - name: Attach the installer to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $setup = Get-ChildItem "dist\Kling Studio Setup *.exe" | Select-Object -First 1
+          if (-not $setup) { throw "no installer was produced" }
+          gh release upload $env:TAG "$($setup.FullName)" --clobber --repo $env:GITHUB_REPOSITORY
       - uses: actions/upload-artifact@v4
         with:
           name: Kling-Studio-Windows
@@ -47,23 +64,53 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: python3 -m pip install pyinstaller pillow
-      - run: python3 tools/make_icon.py
-      - run: python3 tools/make_mac_icon.py
+      - run: python3 tools/make_mac_icon.py || echo "no icns, building without one"
       - run: sh build_mac.sh
-      - run: ditto -c -k --keepParent "dist/Kling Studio.app" "dist/Kling Studio-mac.zip"
-      - name: Build drag-to-Applications .dmg
+      - name: Pack the .app
         run: |
+          VERSION="${TAG#v}"
+          ditto -c -k --keepParent "dist/Kling Studio.app" "dist/KlingStudio-$VERSION-mac.zip"
           rm -rf dmg-root && mkdir dmg-root
           cp -R "dist/Kling Studio.app" dmg-root/
           ln -s /Applications dmg-root/Applications
-          hdiutil create -volname "Kling Studio" -srcfolder dmg-root -ov -format UDZO "dist/Kling Studio-mac.dmg"
+          hdiutil create -volname "Kling Studio" -srcfolder dmg-root -ov -format UDZO \
+            "dist/KlingStudio-$VERSION-mac.dmg"
+      - name: Attach the Mac builds and teach latest.json about them
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${TAG#v}"
+          REPO="$GITHUB_REPOSITORY"
+          ZIP="dist/KlingStudio-$VERSION-mac.zip"
+          DMG="dist/KlingStudio-$VERSION-mac.dmg"
+          gh release upload "$TAG" "$ZIP" "$DMG" --clobber --repo "$REPO"
+
+          # the Windows publish step already put latest.json on the release; add
+          # the mac download to it so Macs see the update as well
+          gh release download "$TAG" --repo "$REPO" --pattern latest.json --output latest.json --clobber
+          SHA=$(shasum -a 256 "$ZIP" | cut -d' ' -f1)
+          SIZE=$(stat -f%z "$ZIP")
+          URL="https://github.com/$REPO/releases/download/$TAG/$(basename "$ZIP")"
+          python3 - "$SHA" "$SIZE" "$URL" <<'PY'
+          import json, sys
+          from pathlib import Path
+          sha, size, url = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+          p = Path("latest.json")
+          m = json.loads(p.read_text(encoding="utf-8"))
+          m["mac"] = {"url": url, "sha256": sha, "size": size}
+          p.write_text(json.dumps(m, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(m, indent=2))
+          PY
+          gh release upload "$TAG" latest.json --clobber --repo "$REPO"
       - uses: actions/upload-artifact@v4
         with:
           name: Kling-Studio-Mac
           path: |
-            dist/Kling Studio-mac.dmg
-            dist/Kling Studio-mac.zip
+            dist/KlingStudio-*-mac.dmg
+            dist/KlingStudio-*-mac.zip

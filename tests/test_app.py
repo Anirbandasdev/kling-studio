@@ -318,6 +318,18 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(state["state"], "error")
         self.assertIn("https", state["error"])
 
+    def test_a_release_with_no_build_for_this_computer_still_shows_up(self):
+        mac_only = {"version": "9.9.9", "notes": ["Mac only for now"],
+                    "mac": {"url": "https://github.com/x/y/releases/download/v9.9.9/mac.zip",
+                            "sha256": "b" * 64, "size": 10}}
+        with mock.patch.object(app.updater, "read_source", return_value=mac_only):
+            _, state = self.call("POST", "/api/update/check")
+        self.assertEqual((state["state"], state["version"]), ("ready", "9.9.9"))
+        self.assertIs(state["has_download"], False)          # nothing to install here
+        status, err = self.call("POST", "/api/update/install")
+        self.assertEqual(status, 400)
+        self.assertIn("no download for this computer", err["error"])
+
     def test_install_is_refused_unless_something_is_ready(self):
         self.assertEqual(self.call("POST", "/api/update/install")[0], 409)      # nothing checked yet
         with mock.patch.object(app.updater, "read_source", return_value=self.newer_manifest()):

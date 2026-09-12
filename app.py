@@ -242,6 +242,7 @@ class Core:
         with self.lock:
             u = {k: v for k, v in self.update.items() if k not in ("url", "sha256")}
         u.update(app_version=APP_VERSION, can_install=updater.can_self_install(),
+                 has_download=bool(self.update["url"]), platform=updater.PLATFORM_KEY,
                  source=self.cfg.update_source, auto=self.cfg.auto_update_check,
                  busy=bool(self.active_runs()))
         return u
@@ -263,7 +264,7 @@ class Core:
                                version=info["version"], notes=info["notes"],
                                page=info["page"] or updater.RELEASES_PAGE,
                                url=info["url"], sha256=info["sha256"], size=info["size"],
-                               state="ready" if info["newer"] and info["url"] else "current")
+                               state="ready" if info["newer"] else "current")
         return self.update_state()
 
     def install_update(self):
@@ -271,6 +272,9 @@ class Core:
             state, version = self.update["state"], self.update["version"]
             if state != "ready":
                 raise ApiError(409, "There's no update ready to install. Check again first.")
+            if not self.update["url"]:
+                raise ApiError(400, "That release has no download for this computer yet. "
+                                    "Open the release page to get it.")
             if self.active_runs():
                 raise ApiError(409, "Finish or stop the running batch before updating.")
             if not updater.can_self_install():
