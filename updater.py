@@ -80,8 +80,11 @@ def read_source(source):
     if kind in ("http", "https"):
         if kind != "https":
             raise UpdateError("The update source must be an https address.")
+        # GitHub's "latest/download" alias sits behind a CDN that can serve a
+        # minutes-old manifest right after a release: ask it not to
         req = Request(source, headers={"User-Agent": "kling-studio-updater",
-                                       "Accept": "application/json"})
+                                       "Accept": "application/json",
+                                       "Cache-Control": "no-cache", "Pragma": "no-cache"})
         try:
             with urlopen(req, timeout=20) as r:
                 raw = r.read(MANIFEST_LIMIT + 1)
