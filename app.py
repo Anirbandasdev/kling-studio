@@ -1030,8 +1030,8 @@ def running_instance_url():
     return None
 
 
-def update_watch(core, first_delay=25, every=6 * 3600):
-    """Ask the manifest once after launch, then every few hours. Installs nothing."""
+def update_watch(core, first_delay=3, every=6 * 3600):
+    """Ask the manifest at startup, then every few hours. Installs nothing."""
     time.sleep(first_delay)
     while True:
         if core.cfg.auto_update_check:

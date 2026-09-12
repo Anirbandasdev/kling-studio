@@ -30,6 +30,24 @@ import updater  # noqa: E402
 
 ASSET = "KlingStudio-{version}.exe"
 
+INSTALL_HELP = """
+
+## Installing
+
+**Windows** — download `KlingStudio-Setup-<version>.exe` below and run it.
+SmartScreen shows a blue *"Windows protected your PC"* box for anything that is
+not code-signed: click **More info**, then **Run anyway**. It installs into your
+user folder, so there is no administrator prompt, and later updates install
+themselves from inside the app.
+
+**macOS** — download the `.dmg`, open it, drag Kling Studio to Applications.
+The first launch needs **right-click the app, then Open** (macOS blocks apps it
+cannot check, once). "Read me first.txt" inside the disk image says the same.
+
+Both need a kie.ai API key, which the app asks for on first launch. Frames cost
+12 credits each, a 5-second video costs 90.
+"""
+
 
 def current_version():
     text = (ROOT / "app.py").read_text(encoding="utf-8")
@@ -157,7 +175,7 @@ def main(argv=None):
         return 0
 
     print(f"  uploading release {tag} to {args.repo}…")
-    notes = "\n".join(f"- {n}" for n in manifest["notes"])
+    notes = "\n".join(f"- {n}" for n in manifest["notes"]) + INSTALL_HELP
     cmd = [gh, "release", "create", tag, str(asset), str(out / "latest.json"),
            "--repo", args.repo, "--title", f"Kling Studio {version}", "--notes", notes, "--latest"]
     if commit:

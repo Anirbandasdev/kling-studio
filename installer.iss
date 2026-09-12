@@ -17,6 +17,7 @@ PrivilegesRequired=lowest
 OutputDir=dist
 OutputBaseFilename=KlingStudio-Setup-{#AppVersion}
 SetupIconFile=ui\app.ico
+InfoBeforeFile=install-notes.txt
 UninstallDisplayIcon={app}\Kling Studio.exe
 Compression=lzma2/max
 SolidCompression=yes

@@ -1,0 +1,29 @@
+Kling Studio - please read this first
+
+"Windows protected your PC"?
+
+   If a blue box appeared when you started this installer, that is normal.
+   Windows SmartScreen shows it for any program that is new and has not been
+   code-signed. It is not a warning that something is wrong with the file.
+
+   Click "More info", then "Run anyway", and carry on.
+
+   Windows may say the same thing the first time you open Kling Studio itself,
+   and again after the app updates itself. Same answer: More info -> Run anyway.
+
+
+What Kling Studio needs
+
+   * A kie.ai account. The app asks for your API key the first time it opens,
+     and keeps it on this computer only.
+   * Credits on that account: 12 for each frame, 90 for a 5-second video.
+     The app always shows the total and asks before it spends anything.
+
+
+Where it installs
+
+   Into your own user folder, so no administrator password is needed, and
+   updates install themselves with one click when a new version is published.
+
+
+Anirban built this. If anything looks wrong, tell him rather than guessing.

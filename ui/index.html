@@ -2129,6 +2129,10 @@ async function init() {
   route();
   startHeartbeat();
   setInterval(refreshBatches, 4000);
+  // the server checks for a new version a few seconds after launch: pick it up
+  // promptly the first couple of times, then settle into a slow poll
+  setTimeout(() => refreshUpdate(), 6000);
+  setTimeout(() => refreshUpdate(), 20000);
   setInterval(() => { if (!S.installing) refreshUpdate(); }, 60000);
   if (S.config && !S.config.tutorial_done) openTutorial();   // a new user gets the walkthrough first
   else if (S.config && !S.config.has_key) openSettings("Paste your kie.ai API key to get started. It stays on this computer.");

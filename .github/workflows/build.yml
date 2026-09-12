@@ -79,6 +79,7 @@ jobs:
           rm -rf dmg-root && mkdir dmg-root
           cp -R "dist/Kling Studio.app" dmg-root/
           ln -s /Applications dmg-root/Applications
+          cp install-notes-mac.txt "dmg-root/Read me first.txt"
           hdiutil create -volname "Kling Studio" -srcfolder dmg-root -ov -format UDZO \
             "dist/KlingStudio-$VERSION-mac.dmg"
       - name: Attach the Mac builds and teach latest.json about them

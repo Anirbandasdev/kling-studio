@@ -1,0 +1,40 @@
+Kling Studio - please read this first
+
+Installing
+
+   Drag "Kling Studio" onto the Applications folder in this window.
+
+
+"Kling Studio can't be opened because Apple cannot check it for malicious
+software"?
+
+   That appears for any app that is not notarised by Apple, which this one is
+   not. It does not mean anything is wrong with the app.
+
+   To open it the first time:
+      1. Find Kling Studio in your Applications folder.
+      2. Right-click it (or Control-click) and choose Open.
+      3. Click Open in the box that appears.
+
+   You only have to do that once. After that it opens normally.
+
+   If macOS refuses even then: System Settings -> Privacy & Security, scroll
+   down, and click "Open Anyway" next to the message about Kling Studio.
+
+
+What Kling Studio needs
+
+   * A kie.ai account. The app asks for your API key the first time it opens,
+     and keeps it on this Mac only.
+   * Credits on that account: 12 for each frame, 90 for a 5-second video.
+     The app always shows the total and asks before it spends anything.
+
+
+Updates
+
+   The app tells you when a new version is out and links to the download.
+   On macOS, updating means downloading the new .dmg and dragging the app
+   across again, replacing the old one.
+
+
+Anirban built this. If anything looks wrong, tell him rather than guessing.
