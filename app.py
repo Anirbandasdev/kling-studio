@@ -70,8 +70,10 @@ class Config:
             data = {}
         self.api_key = data.get("api_key", "")
         self.output_dir = Path(data.get("output_dir") or Path.home() / "Documents" / APP_NAME)
-        # kie.ai charges 12 credits per nano-banana-2 still; Settings can correct it
-        self.frame_credits = data.get("frame_credits", DEFAULT_FRAME_CREDITS)
+        # kie.ai charges 12 credits per nano-banana-2 still; Settings can correct it.
+        # Older configs stored null here, from before the price was known.
+        saved = data.get("frame_credits")
+        self.frame_credits = DEFAULT_FRAME_CREDITS if not saved else int(saved)
         self.update_source = str(data.get("update_source") or updater.DEFAULT_SOURCE)
         self.auto_update_check = bool(data.get("auto_update_check", True))
         self.tutorial_done = bool(data.get("tutorial_done"))  # the guided tour only greets a new user once
@@ -832,7 +834,7 @@ def api_config(h):
     if "frame_credits" in body:
         value = str(body["frame_credits"]).strip()
         if value in ("", "0"):
-            cfg.frame_credits = None
+            cfg.frame_credits = DEFAULT_FRAME_CREDITS      # empty means "use the known price"
         elif value.isdigit():
             cfg.frame_credits = int(value)
         else:

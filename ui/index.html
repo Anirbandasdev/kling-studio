@@ -1287,7 +1287,7 @@ function confirmSpend({ title, names, per, what, detail, extra }) {
     m = openModal({
       title, sub: "Nothing is sent to kie.ai until you confirm.",
       body: `<div class="spend"><div class="spend-icon">${ICON.spark.replace("<svg", '<svg width="22" height="22"')}</div>
-          <div><div class="spend-num">${total ? "≈ " + total.toLocaleString() : "?"}<span>credits</span></div>
+          <div><div class="spend-num">${total ? "≈ " + total.toLocaleString() : plural(names.length, what)}<span>${total ? "credits" : "to make"}</span></div>
           <div class="muted" style="font-size:12.5px">${total ? `${per} credits per ${what} × ${names.length}`
             : `kie.ai's price per ${what} — set it in Settings to see an estimate`}</div></div></div>
         <dl class="kv"><dt>Clips</dt><dd>${esc(shown)}</dd><dt>Settings</dt><dd>${esc(detail)}</dd></dl>
@@ -1926,7 +1926,7 @@ function openSettings(reason) {
         <div class="hint">Each batch gets its own folder here with its frames and videos.</div></label>
       <label class="field"><span class="label">Credits per frame</span>
         <input class="input" id="setCredits" inputmode="numeric" value="${c.frame_credits || ""}" placeholder="12">
-        <div class="hint">kie.ai charges 12 credits for each Nano Banana 2 frame, which is already filled in — change it here if their price moves. Videos are 18 credits per second in Pro, so 90 for a 5-second clip.</div></label>
+        <div class="hint">kie.ai charges 12 credits for each Nano Banana 2 frame. Change it here if their price moves, or leave the box empty to go back to 12. Videos are 18 credits per second in Pro, so 90 for a 5-second clip.</div></label>
       <div class="field"><span class="label">Updates</span>
         <div class="setting-row" style="padding-top:0"><span>Check automatically</span>
           <label class="switch"><input type="checkbox" id="setAuto"${c.auto_update_check ? " checked" : ""}><span></span></label></div>

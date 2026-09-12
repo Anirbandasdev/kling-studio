@@ -228,9 +228,13 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(app.DEFAULT_FRAME_CREDITS, 12)
         _, r = self.call("POST", "/api/config", {"frame_credits": "14"})
         self.assertEqual(r["config"]["frame_credits"], 14)
-        _, r = self.call("POST", "/api/config", {"frame_credits": ""})     # cleared stays cleared
-        self.assertIsNone(r["config"]["frame_credits"])
-        self.assertIsNone(app.Config().frame_credits)
+        _, r = self.call("POST", "/api/config", {"frame_credits": ""})     # empty goes back to 12
+        self.assertEqual(r["config"]["frame_credits"], 12)
+        self.assertEqual(app.Config().frame_credits, 12)
+
+    def test_an_older_config_with_no_price_still_gets_one(self):
+        pl.write_json(app.config_dir() / "config.json", {"api_key": "k", "frame_credits": None})
+        self.assertEqual(app.Config().frame_credits, 12)
 
     def test_tutorial_is_remembered_once_it_is_seen(self):
         _, boot = self.call("GET", "/api/bootstrap")
