@@ -487,7 +487,7 @@ footer .sp { margin-left: auto; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* ---------- paper: the page as it looks on screen, on a big sheet ---------- */
-@page { size: 320mm 430mm; margin: 14mm 15mm 15mm; }
+@page { size: 320mm 470mm; margin: 14mm 15mm 15mm; }
 @media print {
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { font-size: 14.5px; }
@@ -502,6 +502,13 @@ footer .sp { margin-left: auto; }
   figure { margin-top: 20px; }
   .steps { gap: 16px; margin-top: 20px; }
   .tracks { grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 22px; }
+  /* Chromium ignores break-inside on grid items, so the side-by-side install
+     columns get a page of their own rather than being sliced in half */
+  #install .tracks { break-before: page; }
+  .track { padding: 18px; }
+  .track .steps { gap: 13px; }
+  .track .steps p { font-size: 14px; }
+  .track figure { margin-top: 16px; }
   .dl-grid { grid-template-columns: 1fr 1fr; margin-top: 18px; }
   .flow { grid-template-columns: 1fr 26px 1fr 26px 1fr; margin-top: 22px; }
   .clips { grid-template-columns: repeat(3, 1fr); }
@@ -513,8 +520,9 @@ footer .sp { margin-left: auto; }
 
   /* only the pieces that would read as broken stay whole; tall cards and long
      tables may split, or every page ends in a hand's width of nothing */
-  figure, .shot, .dialog, .clip, .note, .dl, .flow-card, .os, .update-chip { break-inside: avoid; }
-  .track, .table-scroll, .steps, section, table, tbody { break-inside: auto; }
+  figure, .shot, .dialog, .clip, .note, .dl, .flow-card, .os, .update-chip,
+  .track, .tracks, .paths { break-inside: avoid; }
+  .table-scroll, .steps, section, table, tbody { break-inside: auto; }
   tr, .steps > li, .field { break-inside: avoid; }
   h1, h2, h3, h4, .eyebrow { break-after: avoid; }
   p, li { orphans: 3; widows: 3; }
