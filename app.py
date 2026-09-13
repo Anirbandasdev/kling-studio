@@ -34,7 +34,7 @@ import pipeline as pl
 import updater
 
 APP_NAME = "Kling Studio"
-APP_VERSION = "3.5.1"
+APP_VERSION = "3.5.2"
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 UI_FILE = BASE_DIR / "ui" / "index.html"
 MAX_BODY = 48 * 1024 * 1024      # dropped pictures arrive as base64 in the body
