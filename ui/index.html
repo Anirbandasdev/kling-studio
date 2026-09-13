@@ -686,7 +686,7 @@ ref: frame 1"></textarea>
 "use strict";
 const TOKEN = "__PK_TOKEN__";
 const DEFAULTS = { aspect_ratio: "9:16", duration: "5", mode: "pro", sound: false };
-const IMAGE_DEFAULTS = { aspect_ratio: "9:16", resolution: "2K" };
+const IMAGE_DEFAULTS = { aspect_ratio: "9:16", resolution: "1K" };
 const NAME_RE = /^[A-Za-z0-9_-]{1,60}$/;
 const DRAFT_KEY = "ks-draft-v1";
 
@@ -732,7 +732,7 @@ function frameCredits(imageSettings) {
   if (S.config && S.config.frame_credits) return S.config.frame_credits;   // your override
   const table = S.prices && S.prices.frames;
   if (!table) return null;
-  const at = table[String((imageSettings || {}).resolution || "").toUpperCase()];
+  const at = table[String((imageSettings || {}).resolution || IMAGE_DEFAULTS.resolution).toUpperCase()];
   return at || S.prices.frames_fallback || null;
 }
 function videoPerSecond(s) {
@@ -1984,7 +1984,7 @@ const rotating = a => a[Math.floor(Date.now() / 8000) % a.length];
 
 // ---------------------------------------------------------------- the walkthrough
 const EXAMPLE_PASTE = `batch: demo1
-settings: 9:16 · 5s · pro · sound off · 2K
+settings: 9:16 · 5s · pro · sound off · 1K
 
 1.
 image: wide shot of a clay diya burning on a dark wooden table, warm rim light, deep shadows
@@ -2033,7 +2033,7 @@ const TOUR = [
       <div class="tour-art" style="margin-top:17px">
         <div class="box"><span class="ico">${ICON.image}</span><b>8 · 12 · 18</b><span>per frame · 1K, 2K, 4K</span></div>
         <div class="box"><span class="ico">${ICON.video}</span><b>90 credits</b><span>a 5s Pro video, sound off</span></div>
-        <div class="box"><span class="ico">${ICON.receipt}</span><b>≈ 612</b><span>a 6-clip batch at 2K, start to finish</span></div>
+        <div class="box"><span class="ico">${ICON.receipt}</span><b>≈ 588</b><span>a 6-clip batch at 1K, start to finish</span></div>
       </div>
       <p class="hint">kie.ai's own prices are built in: a frame costs what its resolution costs, and a video is charged
         by the second — more in Pro than Std, and more again with sound on. Every confirmation shows the total before
@@ -2046,7 +2046,7 @@ const TOUR = [
     sub: "Nothing to install. The skill is already sitting inside Claude, waiting for you.",
     body: () => `<div class="tour-ready"><span class="ico">${ICON.check}</span><span><b>Already installed.</b> When the script is final, type <code>/kling-studio</code> in the Claude chat. The skill reads the shots you just worked on, asks for a batch name, and prints the block below. Select it, copy it, done — no files, no setup, nothing to upload.</span></div>
       <div class="tour-code">batch: c150
-<i>settings: 9:16 · 5s · pro · sound off · 2K</i>
+<i>settings: 9:16 · 5s · pro · sound off · 1K</i>
 
 1.
 <u>image:</u> wide shot of a diya burning on a dark table

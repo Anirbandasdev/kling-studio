@@ -503,6 +503,23 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(d["prices"], {"frame": 8, "video": 135, "video_per_second": 27, "override": False})
         self.assertEqual(d["spend"]["credits"], 8 + 135)
 
+    def test_a_new_batch_is_1k_unless_you_say_otherwise(self):
+        """1K is kie.ai's own default and the cheapest frame there is"""
+        self.assertEqual(pl.DEFAULT_IMAGE_SETTINGS["resolution"], "1K")
+        self.assertEqual(pl.credits_per_frame({}), 8)              # nothing said: the default
+        self.assertEqual(pl.credits_per_frame(None), 8)
+        self.assertEqual(pl.credits_per_frame({"resolution": "banana"}), 12)   # unknown: the middle
+
+        status, d = self.call("POST", "/api/batches", {"name": "c222", "clips": [{"image": "a", "motion": "a"}]})
+        self.assertEqual(status, 200, d)
+        self.assertEqual(d["image_settings"]["resolution"], "1K")
+        self.assertEqual(d["prices"]["frame"], 8)
+        _, boot = self.call("GET", "/api/bootstrap")
+        self.assertEqual(boot["image_defaults"]["resolution"], "1K")
+        d = self.run_stage("c222", "frames")
+        self.assertEqual(self.kie.images[-1]["settings"]["resolution"], "1K")
+        self.assertEqual(d["spend"]["credits"], 8)
+
     def test_a_price_you_set_yourself_wins(self):
         self.make("c221", [{"image": "a", "motion": "a"}])
         _, r = self.call("POST", "/api/config", {"frame_credits": "14"})

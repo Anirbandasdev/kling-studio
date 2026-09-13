@@ -44,7 +44,7 @@ RETRY_DELAY = 2
 MAX_REFERENCES = 14       # nano-banana-2 accepts up to 14 image inputs
 
 DEFAULT_SETTINGS = {"aspect_ratio": "9:16", "duration": "5", "mode": "pro", "sound": False}
-DEFAULT_IMAGE_SETTINGS = {"aspect_ratio": "9:16", "resolution": "2K"}
+DEFAULT_IMAGE_SETTINGS = {"aspect_ratio": "9:16", "resolution": "1K"}   # kie.ai's own default, and the cheapest
 BATCH_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
 CLIP_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 
@@ -103,7 +103,7 @@ def submit_image(prompt, image_settings, reference_urls, key):
             "prompt": prompt,
             "image_input": list(reference_urls or [])[:MAX_REFERENCES],
             "aspect_ratio": image_settings.get("aspect_ratio", "9:16"),
-            "resolution": image_settings.get("resolution", "2K"),
+            "resolution": image_settings.get("resolution", DEFAULT_IMAGE_SETTINGS["resolution"]),
             "output_format": "png",
         },
     }, key)
@@ -257,7 +257,7 @@ def download_file(url, dest: Path, progress=None):
 CREDIT_USD = 0.005
 
 FRAME_CREDITS = {"1K": 8, "2K": 12, "4K": 18}
-FRAME_CREDITS_FALLBACK = 12                # an unknown resolution: price it as 2K
+FRAME_CREDITS_FALLBACK = 12                # a resolution we don't know: quote the middle one
 
 VIDEO_CREDITS_PER_SECOND = {               # mode -> {sound off, sound on}
     "std": {False: 14, True: 20},          # 720p
@@ -277,7 +277,8 @@ PRICES = {                                 # handed to the page so it can show t
 
 def credits_per_frame(image_settings=None):
     """what one nano-banana-2 still costs, by resolution"""
-    resolution = str((image_settings or {}).get("resolution") or "").strip().upper()
+    resolution = str((image_settings or {}).get("resolution")
+                     or DEFAULT_IMAGE_SETTINGS["resolution"]).strip().upper()
     return FRAME_CREDITS.get(resolution, FRAME_CREDITS_FALLBACK)
 
 
