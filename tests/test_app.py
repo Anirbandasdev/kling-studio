@@ -306,6 +306,24 @@ class ServerTests(unittest.TestCase):
         self.run_stage("c170", "frames", redo=["c170_clip01", "c170_clip02"])
         self.assertEqual([len(i["refs"]) for i in self.kie.images], [1, 1])
 
+    def test_the_anchor_rides_along_with_a_clip_that_has_its_own_reference(self):
+        clips = [{"image": "her holding the bottle", "motion": "she turns it",
+                  "ref": {"kind": "needed", "note": "the bottle"}},
+                 {"image": "her smiling", "motion": "she nods"}]
+        self.make("c173", clips)
+        pic = base64.b64encode(png_bytes()).decode()
+        self.call("POST", "/api/batches/c173/attach",
+                  {"kind": "anchor", "filename": "face.png", "data": pic})
+        self.call("POST", "/api/batches/c173/anchor", {"action": "lock"})
+        self.call("POST", "/api/batches/c173/attach",
+                  {"kind": "reference", "filename": "style.png", "data": pic})          # whole batch
+        self.call("POST", "/api/batches/c173/attach",
+                  {"kind": "reference", "clips": ["c173_clip01"], "filename": "bottle.png", "data": pic})
+
+        self.run_stage("c173", "frames")
+        # clip 1: anchor + style + its own picture. clip 2: anchor + style only
+        self.assertEqual([len(i["refs"]) for i in self.kie.images], [3, 2])
+
     def test_the_anchor_needs_a_prompt_and_a_picture_before_locking(self):
         self.make("c171")
         status, err = self.call("POST", "/api/batches/c171/anchor", {"action": "generate"})

@@ -1371,11 +1371,19 @@ function updateCard(el, c, i) {
     el.onmouseleave = v ? () => { v.pause(); v.currentTime = 0; } : null;
   }
 
+  // what this frame is drawn with: the locked anchor and the batch's style pictures
+  // ride along with whatever the clip asks for itself
+  const parts = [];
+  if (b.anchor && b.anchor.locked && b.anchor.file) parts.push("the anchor");
+  for (let i = 0; i < (b.references || []).length; i++) parts.push("a style reference");
+  if (c.ref && !c.needs_reference) parts.push(c.ref.kind === "frame" ? `frame ${c.ref.index}` : "its own picture");
+  const used = c.frame && typeof c.frame.references_used === "number" ? c.frame.references_used : parts.length;
   const refText = c.needs_reference ? "needs a reference"
-    : c.ref && c.ref.kind === "frame" ? `uses frame ${c.ref.index}`
-    : c.ref ? "uses a reference" : "";
+    : used > 1 ? `${used} references`
+    : parts.length === 1 ? `uses ${parts[0]}`
+    : used === 1 ? "uses a reference" : "";
   setHTML($(".clip-name", el), `<span>${esc(c.name)}</span>${refText ?
-    `<span class="ref-badge${c.needs_reference ? " ask" : ""}">${esc(refText)}</span>` : ""}`);
+    `<span class="ref-badge${c.needs_reference ? " ask" : ""}" title="${esc(parts.length ? `Drawn with ${parts.join(" + ")}` : "")}">${esc(refText)}</span>` : ""}`);
   setHTML($(".prompt.image", el), `<b>Image</b> ${esc(c.image || "no image prompt")}`);
   setHTML($(".prompt.motion", el), `<b>Motion</b> ${esc(c.motion || "no motion prompt")}`);
   const err = $(".clip-error", el);
