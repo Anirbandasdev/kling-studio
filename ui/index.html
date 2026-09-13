@@ -212,8 +212,12 @@ h2 { margin: 0; font: 650 16.5px/1.3 var(--display); letter-spacing: -.015em; }
 .clip-card:hover .play { opacity: 1; transform: scale(1); }
 .clip-body { display: flex; flex-direction: column; gap: 9px; flex: 1; padding: 13px 14px 14px; }
 .clip-name { font-size: 13px; font-weight: 650; display: flex; align-items: center; justify-content: space-between; gap: 8px; letter-spacing: -.01em; }
-.ref-badge { display: inline-flex; align-items: center; gap: 5px; height: 21px; padding: 0 9px; border-radius: 999px; background: var(--accent-soft); color: #c8c0ff; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+.ref-badge { display: inline-flex; align-items: center; gap: 5px; height: 21px; padding: 0 9px; border: 0; border-radius: 999px; background: var(--accent-soft); color: #c8c0ff; font: 700 10.5px/1 var(--font); white-space: nowrap; cursor: pointer; }
+.ref-badge:hover { background: rgba(139, 123, 255, .34); color: #efecff; }
 .ref-badge.ask { background: var(--amber-soft); color: var(--amber); }
+.ref-badge.ask:hover { background: rgba(255, 196, 77, .3); }
+.ref-badge.none { background: var(--panel-2); color: var(--text-3); border: 1px solid var(--border); }
+.ref-badge.none:hover { border-color: var(--accent); color: var(--text-2); background: var(--accent-soft); }
 .prompt { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .prompt b { color: var(--text-3); font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
 .prompt.missing { color: var(--red); }
@@ -332,6 +336,21 @@ h2 { margin: 0; font: 650 16.5px/1.3 var(--display); letter-spacing: -.015em; }
 .pick input { width: 14px; height: 14px; accent-color: var(--accent); margin: 0; }
 .pick.on { border-color: rgba(139, 123, 255, .55); background: var(--accent-soft); color: #ddd8ff; }
 .pick .ask { color: var(--amber); font-size: 11px; }
+/* what draws one frame */
+.uses { display: flex; flex-direction: column; gap: 9px; }
+.use { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; gap: 13px; align-items: center; padding: 9px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2); }
+.use.dropped { opacity: .55; border-style: dashed; }
+.use-shot { width: 62px; height: 62px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-strong); background: #0a0c10; padding: 0; cursor: zoom-in; display: grid; place-items: center; color: var(--text-3); font-size: 10px; text-align: center; }
+.use-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.use-shot:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.use-what { min-width: 0; }
+.use-what b { display: block; font-size: 13px; font-weight: 650; }
+.use-what span { display: block; font-size: 11.5px; color: var(--text-3); margin-top: 2px; word-break: break-word; }
+.use-what .warn { color: var(--amber); }
+.use-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.use-order { width: 20px; text-align: right; font: 650 11px/1 var(--mono); color: var(--text-3); }
+.viewer { display: grid; place-items: center; background: #07080b; border-radius: 14px; overflow: hidden; min-height: 180px; }
+.viewer img { display: block; max-width: 100%; max-height: 62vh; }
 /* master prompt + storage */
 .copy-box { width: 100%; min-height: 230px; max-height: 46vh; resize: vertical; font: 12px/1.65 var(--mono); color: var(--text); background: #0b0d12; border: 1px solid var(--border-strong); border-radius: 14px; padding: 14px; }
 .store-total { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -1231,9 +1250,11 @@ function renderRefs() {
       load.most} pictures and kie.ai only accepts ${load.limit}. The last ${load.most - load.limit} would be
       thrown away — remove a few here, or clear the anchor frame, so you choose which ones count.</p>` : ""}
     <div class="refs-row">
-      ${files.map(r => `<figure class="ref-thumb"><img src="${withToken(`/api/batches/${enc(b.name)}/ref/${enc(r.file)}`)}" alt="">
+      ${files.map(r => `<figure class="ref-thumb" data-look="${esc(r.file)}" title="Click to see it full size">
+        <img src="${withToken(`/api/batches/${enc(b.name)}/ref/${enc(r.file)}`)}" alt="">
         <button class="ref-x" data-remove="${esc(r.file)}" title="Remove this reference">${ICON.trash}</button></figure>`).join("")}
-      ${paths.map(r => `<figure class="ref-thumb file"><span>${esc(r.path.split(/[\\/]/).pop())}</span>
+      ${paths.map(r => `<figure class="ref-thumb file" data-look-path="${esc(r.path)}" title="${esc(r.path)}">
+        <span>${esc(r.path.split(/[\\/]/).pop())}</span>
         <button class="ref-x" data-remove="${esc(r.path)}" title="Remove this reference">${ICON.trash}</button></figure>`).join("")}
       <button class="ref-add" data-act="add">${ICON.image}<span>Add a picture</span></button>
       <button class="ref-add" data-act="draw">${ICON.spark}<span>Draw one${frameCredits() ? ` · ≈ ${frameCredits()}` : ""}</span></button>
@@ -1278,6 +1299,9 @@ function renderRefs() {
       openDrawReference(b);
     } else if (e.target.closest('[data-act="some"]')) {
       referencePopup(null, 0, 0).then(() => pollBatch());
+    } else {
+      const look = e.target.closest("[data-look], [data-look-path]");
+      if (look) openBatchReference(b, look.dataset.look || "", look.dataset.lookPath || "");
     }
   };
   const pick = $("#anchorPick", host);
@@ -1450,13 +1474,15 @@ function updateCard(el, c, i) {
     : over ? `${limit} of ${parts.length} references`
     : used > 1 ? `${used} references`
     : parts.length === 1 ? (parts[0] === "its own picture" ? "uses a reference picture" : `uses ${parts[0]}`)
-    : used === 1 ? "uses a reference" : "";
-  const refTitle = !parts.length ? ""
+    : used === 1 ? "uses a reference" : "no references";
+  const refTitle = !parts.length ? "Nothing but the image prompt draws this frame. Click to add a picture."
     : over ? `Drawn with ${parts.slice(0, limit).join(" + ")}. kie.ai's limit is ${limit}, so ${
-        parts.slice(limit).join(" + ")} would be dropped.`
-    : `Drawn with ${parts.join(" + ")}`;
-  setHTML($(".clip-name", el), `<span>${esc(c.name)}</span>${refText ?
-    `<span class="ref-badge${c.needs_reference || over ? " ask" : ""}" title="${esc(refTitle)}">${esc(refText)}</span>` : ""}`);
+        parts.slice(limit).join(" + ")} would be dropped. Click to see them.`
+    : `Drawn with ${parts.join(" + ")}. Click to see and change them.`;
+  // the badge is the way in: it says what draws this frame, and opens the list
+  setHTML($(".clip-name", el), `<span>${esc(c.name)}</span>` +
+    `<button class="ref-badge${c.needs_reference || over ? " ask" : parts.length ? "" : " none"}" ` +
+    `data-act="uses" title="${esc(refTitle)}">${esc(refText)}</button>`);
   setHTML($(".prompt.image", el), `<b>Image</b> ${esc(c.image || "no image prompt")}`);
   setHTML($(".prompt.motion", el), `<b>Motion</b> ${esc(c.motion || "no motion prompt")}`);
   const err = $(".clip-error", el);
@@ -1603,11 +1629,11 @@ function referencePopup(clip, index, total) {
     let m;
     m = openModal({
       title: clip ? `Reference picture for ${clip.name}` : "One picture, the clips you choose",
-      sub: clip
-        ? (clip.reference_note ? `The skill asked for: ${clip.reference_note}`
-                               : "This clip was marked as needing a reference picture.")
-        : "Uploaded once and pointed at every clip you tick — it does not go on the whole batch.",
-      body: `${clip ? `<div class="queue-count">Clip ${index} of ${total}</div>
+      sub: !clip ? "Uploaded once and pointed at every clip you tick — it does not go on the whole batch."
+        : clip.reference_note ? `The skill asked for: ${clip.reference_note}`
+        : clip.ref ? "Pick another picture; the one this clip uses now is replaced."
+        : "This clip was marked as needing a reference picture.",
+      body: `${clip ? `${total > 1 ? `<div class="queue-count">Clip ${index} of ${total}</div>` : ""}
         <p class="prompt" style="-webkit-line-clamp:4;margin:10px 0 14px"><b>Image</b> ${esc(clip.image || "no image prompt")}</p>` : ""}
         ${pool.length ? `<div class="ref-pool">
           <div class="label">Pictures already in this batch</div>
@@ -2248,6 +2274,167 @@ function openUpdate() {
 }
 
 // ---------------------------------------------------------------- settings
+// ---------------------------------------------------------------- looking at a reference
+// where a reference picture lives, as a URL the page can show
+function refSrc(item) {
+  const b = S.batch;
+  if (item.clip) {
+    const other = (b.clips || []).find(c => c.name === item.clip);
+    return other && other.frame.ready
+      ? withToken(`/api/batches/${enc(b.name)}/frame/${enc(item.clip)}?v=${other.frame.version || 0}`) : "";
+  }
+  return item.file ? withToken(`/api/batches/${enc(b.name)}/ref/${enc(item.file)}`) : "";
+}
+
+function shotHTML(item, index) {
+  const src = refSrc(item);
+  const label = item.clip ? (item.waiting ? "not drawn yet" : "frame") : (item.path ? "on disk" : "picture");
+  return `<button class="use-shot" data-shot="${index}" title="See it full size">${
+    src ? `<img src="${esc(src)}" alt="">` : esc(label)}</button>`;
+}
+
+// one picture, as big as the window allows
+function openReferenceViewer(item, extra = []) {
+  const src = refSrc(item);
+  const where = item.clip ? `Clip ${item.clip}${item.waiting ? " — its frame isn't drawn yet" : ""}`
+    : item.path || item.file || "";
+  let m;
+  m = openModal({
+    title: item.label ? item.label.charAt(0).toUpperCase() + item.label.slice(1) : "Reference",
+    sub: where,
+    wide: true,
+    body: `<div class="viewer">${src ? `<img src="${esc(src)}" alt="">`
+      : '<p class="hint" style="padding:36px">There is nothing to show yet — this frame has not been drawn.</p>'}</div>`,
+    actions: [...extra.map(a => ({ ...a, onClick: btn => a.onClick(btn, m) })),
+              { label: "Close", kind: "primary", onClick: () => m.close() }],
+  });
+  return m;
+}
+
+// one of the batch's own pictures: see it, swap it, or take it off every frame
+function openBatchReference(b, file, path) {
+  const used = (b.clips || []).filter(c => (c.ref || {}).file && c.ref.file === file).map(c => c.name);
+  const item = { label: "a style reference", kind: "style", file, path, clip: "" };
+  const key = file || path;
+  const swap = async (m, picture) => {
+    try {
+      await attach(b.name, { kind: "reference", ...picture });            // the new one first
+      S.batch = await api(`/api/batches/${enc(b.name)}/references`, { method: "POST", body: { remove: key } });
+      renderBatch();
+      m.close();
+      toast("Reference replaced — every frame uses the new one", "success");
+    } catch (err) { toast(err.message, "error"); }
+  };
+  const m = openReferenceViewer(item, b.running ? [] : [
+    { label: "Replace…", onClick: async (btn, modal) => {
+      const f = await pickPicture();
+      if (f) swap(modal, await readPicture(f));
+    } },
+    { label: "Remove", kind: "danger", onClick: async (btn, modal) => {
+      try {
+        S.batch = await api(`/api/batches/${enc(b.name)}/references`, { method: "POST", body: { remove: key } });
+        renderBatch();
+        modal.close();
+        toast("Reference removed", "success");
+      } catch (err) { toast(err.message, "error"); }
+    } },
+  ]);
+  // say where else this picture turns up, so removing it holds no surprises
+  const sub = $(".modal-sub", m.el);
+  if (sub) {
+    sub.textContent = `On every frame in this batch${used.length
+      ? ` · also picked by itself for ${plural(used.length, "clip")}: ${used.join(", ")}` : ""}`;
+  }
+  return m;
+}
+
+// everything one frame is drawn with, in the order kie.ai gets it, and what can be changed
+function openClipReferences(clipName) {
+  const at = () => (S.batch.clips || []).find(c => c.name === clipName);
+  if (!at()) return;
+  const limit = S.batch.reference_limit || 14;
+  let m;
+
+  const place = item => {
+    if (item.kind === "kept") return "Kept for this batch — on every frame";
+    if (item.kind === "style") return "From the batch's References — on every frame";
+    if (item.kind === "anchor") return item.waiting ? "The anchor frame — it is drawn first"
+                                                    : "The anchor frame — sent with every other clip";
+    if (item.clip) return item.waiting ? `Copied from ${item.clip}, which isn't drawn yet` : `Copied from ${item.clip}`;
+    return item.path ? `This clip only · ${item.path}` : "This clip only";
+  };
+
+  const draw = () => {
+    const c = at();
+    if (!c) { m.close(); return; }
+    const items = c.reference_items || [];
+    const own = items.find(i => i.kind === "own");
+    const running = S.batch.running;
+    const rows = items.length ? `<div class="uses">${items.map((it, i) => `
+        <div class="use${i >= limit ? " dropped" : ""}">
+          ${shotHTML(it, i)}
+          <span class="use-what"><b>${esc(it.label)}</b><span${i >= limit ? ' class="warn"' : ""}>${
+            i >= limit ? `Past kie.ai's limit of ${limit} — this one is not sent` : esc(place(it))}</span></span>
+          <span class="use-acts">${it.kind === "own" && !running
+            ? '<button class="btn btn-sm" data-act="change">Change…</button>' +
+              '<button class="btn btn-sm danger-hover" data-act="drop">Remove</button>'
+            : `<span class="use-order">${i + 1}</span>`}</span>
+        </div>`).join("")}</div>`
+      : `<p class="hint">This frame is drawn from its image prompt alone — no reference pictures.</p>`;
+    setHTML($("#usesBody", m.el), rows
+      + (c.needs_reference ? `<p class="modal-note">This clip is still waiting for a picture${
+          c.reference_note ? `: ${esc(c.reference_note)}` : ""}.</p>` : "")
+      + (!own && !running ? `<p class="hint" style="margin-top:14px">A picture added here goes to this clip only.
+          For one that should be on every frame, use the References panel above.</p>` : ""));
+    const foot = $(".modal-foot", m.el);
+    setHTML(foot, `${!own && !running ? '<button class="btn btn-primary" data-act="add">Give it a picture</button>' : ""}
+      <button class="btn" data-act="close">Close</button>`);
+  };
+
+  m = openModal({
+    title: `What draws ${clipName}`,
+    sub: "In the order kie.ai gets them. The batch's own pictures ride along with whatever this clip asks for.",
+    wide: true,
+    body: '<div id="usesBody"></div>',
+    actions: [{ label: "Close", onClick: () => m.close() }],
+  });
+
+  m.el.addEventListener("click", async e => {
+    // not "[data-view]": the body itself carries one, so every click would match it
+    const shot = e.target.closest("[data-shot]");
+    const act = e.target.closest("[data-act]");
+    const c = at();
+    if (shot && c) {
+      const item = (c.reference_items || [])[Number(shot.dataset.shot)];
+      if (item) openReferenceViewer(item);
+      return;
+    }
+    if (!act || !c) return;
+    if (act.dataset.act === "close") { m.close(); return; }
+    if (act.dataset.act === "add" || act.dataset.act === "change") {
+      m.close();
+      await referencePopup(c, 0, 0);
+      await pollBatch();
+      openClipReferences(clipName);
+      return;
+    }
+    if (act.dataset.act === "drop") {
+      const ref = c.ref || {};
+      // a clip the skill asked for a picture goes back to waiting, not to nothing
+      const back = ref.asked || ref.kind === "needed" ? { kind: "needed", note: ref.note || "" } : null;
+      try {
+        S.batch = await api(`/api/batches/${enc(S.batch.name)}/clip`, { method: "POST",
+          body: { clip: clipName, ref: back } });
+        renderBatch();
+        toast(back ? `${clipName} is waiting for a picture again` : `${clipName}: reference removed`, "success");
+        draw();
+      } catch (err) { toast(err.message, "error"); }
+    }
+  });
+  draw();
+  return m;
+}
+
 // ---------------------------------------------------------------- the batch, back out again
 async function openMasterPrompt(name) {
   let d;
@@ -2509,6 +2696,7 @@ function wire() {
       case "edit": return openPromptEditor(clip);
       case "redo-frame": return openRedo(clip, "frames");
       case "redo-video": return openRedo(clip, "videos");
+      case "uses": return openClipReferences(name);
       case "ref": return referenceQueue([name]).then(() => pollBatch());
       case "drop": {
         const file = await pickPicture();

@@ -503,6 +503,11 @@ class Core:
             return True
         return any((c.get("ref") or {}).get("file") == file for c in b.clips())
 
+    def _forget_file(self, b, file):
+        """bin a picture in refs/ once nothing at all points at it any more"""
+        if file and Path(file).name == file and not self._in_use(b, file):
+            (b.refs_dir / file).unlink(missing_ok=True)
+
     def batch_references(self, name, body):
         """Manage the pictures that apply to the whole batch, and the anchor frame."""
         b = self.get_batch(name)
@@ -519,8 +524,7 @@ class Core:
             b.save_job()
             # a clip may still be pointing at the same picture: only bin the file
             # once nothing at all refers to it
-            if Path(remove).name == remove and not self._in_use(b, remove):
-                (b.refs_dir / remove).unlink(missing_ok=True)
+            self._forget_file(b, remove)
             self.log(b, "Reference removed.")
             return self.detail(b)
 
@@ -589,7 +593,13 @@ class Core:
                 "ref": c.get("ref"), "needs_reference": bool(need and need[0] == "ask"),
                 "reference_note": (need[1] if need and need[0] == "ask" else ""),
                 "references_planned": len(plan),
-                "reference_labels": [label for _p, label, _w in plan],
+                "reference_labels": [it["label"] for it in plan],
+                # enough for the page to show each picture and say where it came from
+                "reference_items": [{
+                    "label": it["label"], "kind": it["kind"], "file": it["file"],
+                    "clip": it["clip"], "waiting": bool(it["waiting_on"]),
+                    "path": "" if (it["file"] or it["clip"]) else str(it["path"]),
+                } for it in plan],
                 "frame": {**frame, "ready": frame_ready,
                           "version": int(frame_file.stat().st_mtime) if frame_ready else None},
                 "video": {**video, "ready": video_ready,
@@ -836,10 +846,21 @@ class Core:
         for field in ("image", "motion"):
             if field in body:
                 clip[field] = str(body[field] or "").strip()
+        replaced = ""
         if "ref" in body:
             ref = body["ref"]
-            clip["ref"] = ref if isinstance(ref, dict) else None
+            old = clip.get("ref") or {}
+            new = dict(ref) if isinstance(ref, dict) else None
+            if new is not None and new.get("kind") != "needed" and (old.get("asked") or old.get("kind") == "needed"):
+                new.setdefault("asked", True)      # the skill asked for a picture here
+                new.setdefault("note", old.get("note", ""))
+            if old.get("file") and old["file"] != (new or {}).get("file"):
+                replaced = old["file"]
+            clip["ref"] = new
         b.save_job()
+        if replaced:
+            self._forget_file(b, replaced)      # the picture it was using, if nothing else wants it
+            self.log(b, f"{clip_name}: reference changed.")
         return self.detail(b)
 
     def attach(self, name, body):
@@ -881,10 +902,23 @@ class Core:
             else:
                 saved = save_upload(b.refs_dir, body.get("filename"), body.get("data"))
             for target in targets:
-                clip = b.clip(target)
-                if not clip:
+                if not b.clip(target):
                     raise ApiError(404, f"Unknown clip {target}.")
+            replaced = []
+            for target in targets:
+                clip = b.clip(target)
+                old = clip.get("ref") or {}
                 clip["ref"] = {"kind": "file", "file": saved}
+                if old.get("kind") == "needed":
+                    # remember that the skill asked for one, so taking this picture off
+                    # again puts the clip back to waiting with its note intact
+                    clip["ref"]["asked"] = True
+                    clip["ref"]["note"] = old.get("note", "")
+                elif old.get("asked"):
+                    clip["ref"]["asked"] = True
+                    clip["ref"]["note"] = old.get("note", "")
+                if old.get("file") and old["file"] != saved:
+                    replaced.append(old["file"])
             if targets:
                 self.log(b, f"Reference picture added to {plural(len(targets), 'clip')}: "
                             f"{', '.join(targets)}.")
@@ -894,6 +928,8 @@ class Core:
                     refs.append({"kind": "file", "file": saved})
                 self.log(b, "Style reference added for every frame in the batch.")
             b.save_job()
+            for file in replaced:
+                self._forget_file(b, file)      # nothing points at the old one any more
         else:
             raise ApiError(400, "Unknown kind.")
         return self.detail(b)

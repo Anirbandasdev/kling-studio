@@ -367,39 +367,53 @@ class Batch:
     def reference_plan(self, name):
         """Every picture a frame for this clip is drawn with, in the order it is sent.
 
-        Each entry is (path, label, waiting_on): waiting_on names the clip whose frame
-        has to exist first, so the caller can say so instead of sending a broken job.
-        The locked anchor and the batch's own pictures ride along with whatever the clip
-        asks for itself, and the same file is never sent twice.
+        Each entry says what it is and where it came from, so the page can show it and
+        the runner can upload it:
+
+            {path, label, kind, file, clip, waiting_on}
+
+        kind says who chose it: "kept" (a locked anchor from an older batch), "style"
+        (one of the batch's pictures), "anchor" (the batch's anchor frame) or "own"
+        (this clip's own choice, a picture or another clip's still). A clip field
+        means it is another clip's frame rather than a file. file is its name inside
+        refs/, or "" for a picture that lives somewhere else on disk. waiting_on names
+        the clip whose frame has to exist first, so the caller can say so instead of
+        sending a broken job.
+
+        The batch's pictures ride along with whatever the clip asks for itself, and
+        the same file is never sent twice.
         """
         out, seen = [], set()
 
-        def add(path, label, waiting_on=None):
+        def add(path, label, kind, file="", clip="", waiting_on=None):
             key = str(path).lower()
             if key in seen:
                 return
             seen.add(key)
-            out.append((Path(path), label, waiting_on))
+            out.append({"path": Path(path), "label": label, "kind": kind,
+                        "file": file, "clip": clip, "waiting_on": waiting_on})
 
         anchor = self.anchor_file()
         if anchor:
-            add(anchor, "the kept reference")
+            add(anchor, "the kept reference", "kept", file=self.anchor().get("file") or "")
         lead = self.anchor_frame_name()
         if lead and lead != name:
-            add(self.frame_path(lead), f"frame {self.anchor_frame()}",
-                None if self.frame_ready(lead) else lead)
+            add(self.frame_path(lead), f"frame {self.anchor_frame()}", "anchor", clip=lead,
+                waiting_on=None if self.frame_ready(lead) else lead)
         for ref in self.job.get("references") or []:
             path = Path(ref["path"]) if ref.get("path") else (self.refs_dir / ref["file"] if ref.get("file") else None)
             if path and path.is_file():
-                add(path, "a style reference")
+                add(path, "a style reference", "style", file=ref.get("file") or "")
         need = self.reference_urls_needed(name)
+        own = (self.clip(name) or {}).get("ref") or {}
         if need and need[0] == "file":
-            add(need[1], "its own picture")
+            add(need[1], "its own picture", "own", file=own.get("file") or "")
         elif need and need[0] == "frame":
             clips = self.clips()
             other = clips[need[1] - 1]["name"] if 0 < need[1] <= len(clips) else None
-            add(self.frame_path(other) if other else f"<frame {need[1]}>", f"frame {need[1]}",
-                None if (other and self.frame_ready(other)) else (other or f"frame {need[1]}"))
+            add(self.frame_path(other) if other else f"<frame {need[1]}>", f"frame {need[1]}", "own",
+                clip=other or "", waiting_on=None if (other and self.frame_ready(other))
+                else (other or f"frame {need[1]}"))
         return out
 
     # ---- what this batch has cost
@@ -728,10 +742,10 @@ class Runner(threading.Thread):
     def _reference_urls(self, name):
         """upload whatever this clip is drawn with; [] when it has nothing"""
         urls = []
-        for path, label, waiting_on in self.batch.reference_plan(name):
-            if waiting_on:
-                raise RuntimeError(f"needs {label} first, and that frame isn't ready")
-            urls.append(self._upload(path))
+        for item in self.batch.reference_plan(name):
+            if item["waiting_on"]:
+                raise RuntimeError(f"needs {item['label']} first, and that frame isn't ready")
+            urls.append(self._upload(item["path"]))
         return urls
 
     def _order(self, names):

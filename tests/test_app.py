@@ -604,6 +604,93 @@ class ServerTests(unittest.TestCase):
         self.assertEqual([c["references_planned"] for c in d["clips"]], [1, 2])
         self.assertEqual(d["clips"][1]["reference_labels"], ["frame 1", "a style reference"])
 
+    # ---- seeing and changing what draws a frame
+
+    def test_every_picture_a_frame_uses_is_named_for_the_page(self):
+        clips = [{"image": "a", "motion": "a"},
+                 {"image": "b", "motion": "b", "ref": {"kind": "needed", "note": "the woman"}}]
+        self.make("c195", clips)
+        self.call("POST", "/api/batches/c195/attach",
+                  {"kind": "reference", "filename": "style.png",
+                   "data": base64.b64encode(png_bytes()).decode()})
+        _, d = self.call("POST", "/api/batches/c195/attach",
+                         {"kind": "reference", "clips": ["c195_clip02"], "filename": "woman.png",
+                          "data": base64.b64encode(png_bytes()).decode()})
+        _, d = self.call("POST", "/api/batches/c195/references", {"anchor": 1})
+
+        first, second = d["clips"][0]["reference_items"], d["clips"][1]["reference_items"]
+        self.assertEqual([i["kind"] for i in first], ["style"])
+        self.assertEqual([i["kind"] for i in second], ["anchor", "style", "own"])
+        anchor, style, own = second
+        self.assertEqual((anchor["clip"], anchor["waiting"]), ("c195_clip01", True))   # not drawn yet
+        self.assertEqual((style["file"], style["clip"]), ("style.png", ""))
+        self.assertEqual((own["file"], own["label"]), ("woman.png", "its own picture"))
+        self.assertEqual([i["path"] for i in second], ["", "", ""])   # nothing outside the batch
+
+    def test_a_clips_picture_can_be_swapped_and_the_old_one_is_binned(self):
+        clips = [{"image": "a", "motion": "a", "ref": {"kind": "needed", "note": "the woman"}}]
+        self.make("c196", clips)
+        refs = self.tmp / "out" / "c196" / "refs"
+        self.call("POST", "/api/batches/c196/attach",
+                  {"kind": "reference", "clips": ["c196_clip01"], "filename": "first.png",
+                   "data": base64.b64encode(png_bytes()).decode()})
+        _, d = self.call("POST", "/api/batches/c196/attach",
+                         {"kind": "reference", "clips": ["c196_clip01"], "filename": "second.png",
+                          "data": base64.b64encode(png_bytes()).decode()})
+        self.assertEqual(d["clips"][0]["ref"]["file"], "second.png")
+        self.assertEqual(sorted(p.name for p in refs.iterdir()), ["second.png"])
+
+    def test_a_picture_two_clips_share_survives_one_of_them_swapping(self):
+        clips = [{"image": f"shot {i}", "motion": "moves",
+                  "ref": {"kind": "needed", "note": "her"}} for i in (1, 2)]
+        _, d = self.make("c197", clips)
+        names = [c["name"] for c in d["clips"]]
+        self.call("POST", "/api/batches/c197/attach",
+                  {"kind": "reference", "clips": names, "filename": "her.png",
+                   "data": base64.b64encode(png_bytes()).decode()})
+        _, d = self.call("POST", "/api/batches/c197/attach",
+                         {"kind": "reference", "clips": [names[0]], "filename": "new.png",
+                          "data": base64.b64encode(png_bytes()).decode()})
+        self.assertEqual([c["ref"]["file"] for c in d["clips"]], ["new.png", "her.png"])
+        self.assertTrue((self.tmp / "out" / "c197" / "refs" / "her.png").is_file())
+
+    def test_taking_a_picture_off_puts_the_clip_back_to_waiting(self):
+        clips = [{"image": "a", "motion": "a", "ref": {"kind": "needed", "note": "the woman"}}]
+        self.make("c198", clips)
+        _, d = self.call("POST", "/api/batches/c198/attach",
+                         {"kind": "reference", "clips": ["c198_clip01"], "filename": "her.png",
+                          "data": base64.b64encode(png_bytes()).decode()})
+        self.assertEqual((d["clips"][0]["needs_reference"], d["clips"][0]["ref"]["asked"]), (False, True))
+        self.assertEqual(d["clips"][0]["ref"]["note"], "the woman")
+
+        _, d = self.call("POST", "/api/batches/c198/clip",
+                         {"clip": "c198_clip01", "ref": {"kind": "needed", "note": "the woman"}})
+        self.assertEqual((d["clips"][0]["needs_reference"], d["clips"][0]["reference_note"]), (True, "the woman"))
+        self.assertEqual(d["plan"]["blocked"], ["c198_clip01"])
+        self.assertFalse((self.tmp / "out" / "c198" / "refs" / "her.png").exists())   # nothing wants it now
+
+    def test_a_clip_that_was_never_asked_just_loses_its_picture(self):
+        clips = [{"image": "a", "motion": "a"}]
+        self.make("c199", clips)
+        _, d = self.call("POST", "/api/batches/c199/attach",
+                         {"kind": "reference", "clips": ["c199_clip01"], "filename": "look.png",
+                          "data": base64.b64encode(png_bytes()).decode()})
+        self.assertNotIn("asked", d["clips"][0]["ref"])
+        _, d = self.call("POST", "/api/batches/c199/clip", {"clip": "c199_clip01", "ref": None})
+        self.assertEqual((d["clips"][0]["ref"], d["clips"][0]["needs_reference"]), (None, False))
+        self.assertEqual(d["clips"][0]["reference_items"], [])
+        self.assertEqual(d["plan"]["frames_make"], ["c199_clip01"])
+
+    def test_the_note_survives_switching_to_another_clips_frame(self):
+        clips = [{"image": "a", "motion": "a"},
+                 {"image": "b", "motion": "b", "ref": {"kind": "needed", "note": "the woman"}}]
+        self.make("c200", clips)
+        _, d = self.call("POST", "/api/batches/c200/clip",
+                         {"clip": "c200_clip02", "ref": {"kind": "frame", "index": 1}})
+        self.assertEqual(d["clips"][1]["ref"]["note"], "the woman")
+        self.assertTrue(d["clips"][1]["ref"]["asked"])
+        self.assertEqual(d["clips"][1]["reference_items"][0]["clip"], "c200_clip01")
+
     def test_past_the_limit_the_run_says_what_it_dropped(self):
         with mock.patch.object(pl, "MAX_REFERENCES", 1):
             clips = [{"image": "a", "motion": "a"}]
