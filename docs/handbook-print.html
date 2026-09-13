@@ -907,7 +907,34 @@ footer .sp { margin-left: auto; }
   <section id="refs">
     <div class="eyebrow">Consistency</div>
     <h2>Keeping the same face across clips</h2>
-    <p class="lede">Nano Banana 2 draws each frame from scratch, so left alone it invents a slightly different person every time. Three ways to stop that, on the <b>References</b> panel at the top of a batch.</p>
+    <p class="lede">Nano Banana 2 draws each frame from scratch, so left alone it invents a slightly different person every time. The <b>References</b> panel at the top of a batch is where you stop that — and the anchor is the strongest tool in it.</p>
+
+    <ol class="steps">
+      <li>
+        <div>
+          <h4>Describe the character, not a scene</h4>
+          <p>In the anchor box, write the portrait you want locked: <em>studio portrait of the woman, plain grey background, neutral expression</em>. It is never one of your clips, so keep the scene out of it.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h4>Draw just the anchor</h4>
+          <p><b>Generate anchor</b> costs one frame — 12 credits — and nothing else is drawn. It appears beside the box a few seconds later.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h4>Look at it. Redraw until it's right</h4>
+          <p>Wrong face? Change the wording and press <b>Redraw anchor</b>. You're only ever risking 12 credits, not the whole batch. Or press <b>Use my picture</b> and skip drawing entirely.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h4>Lock it</h4>
+          <p><b>Lock → use on every frame</b> pins it. From then on every frame in the batch is drawn with the anchor attached, so the same person carries through all of them. Unlock at any time.</p>
+        </div>
+      </li>
+    </ol>
 
     <div class="flow" style="grid-template-columns:1fr 1fr 1fr">
       <div class="flow-card">
@@ -917,7 +944,7 @@ footer .sp { margin-left: auto; }
       </div>
       <div class="flow-card">
         <b>An anchor frame</b>
-        <span>Draw one clip first, then build every other clip from it. Pick which clip in the dropdown and the rest follow it, so the same face carries through.</span>
+        <span>No portrait to lock? Nominate one of your own clips instead: it is drawn first and the rest are built from it.</span>
         <em>Anchor frame</em>
       </div>
       <div class="flow-card">
@@ -945,9 +972,22 @@ footer .sp { margin-left: auto; }
               <div class="ghost">Frame 1 · c150_clip01</div>
             </div>
           </div>
+          <div class="panel" style="margin-top:14px;display:grid;grid-template-columns:92px minmax(0,1fr);gap:14px;align-items:start">
+            <div style="aspect-ratio:3/4;border-radius:10px;background:linear-gradient(160deg,#6a4bd8,#2aa7c4);position:relative;border:1px solid var(--app-line)">
+              <span style="position:absolute;left:6px;bottom:6px;padding:2px 8px;border-radius:999px;background:rgba(6,7,11,.8);color:var(--app-green);font-size:9.5px;font-weight:700">Locked</span>
+            </div>
+            <div>
+              <div class="panel-label">Anchor — the character to lock</div>
+              <div class="prompt-box" style="font-size:11px">studio portrait of the woman, plain grey background, neutral expression</div>
+              <div class="btn-row" style="margin-top:9px">
+                <span class="cta" style="padding:6px 10px;font-size:11px">Redraw anchor · ≈ 12</span>
+                <span class="mini">Unlock</span><span class="mini">Use my picture</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <figcaption>A style reference goes on every frame. The anchor makes one clip the source for the rest. They work together — style plus anchor is the most consistent setting.</figcaption>
+      <figcaption>The anchor is drawn and approved on its own before any scene frame exists. A style reference goes on every frame too — anchor plus style is the most consistent setting there is.</figcaption>
     </figure>
 
     <div class="note">
