@@ -462,14 +462,14 @@ class ServerTests(unittest.TestCase):
 
     def test_the_published_prices_reach_the_page(self):
         _, boot = self.call("GET", "/api/bootstrap")
-        self.assertEqual(boot["prices"]["frames"], {"1K": 12, "2K": 12, "4K": 18})
+        self.assertEqual(boot["prices"]["frames"], {"1K": 8, "2K": 12, "4K": 18})
         self.assertEqual(boot["prices"]["video_per_second"]["pro"], {"off": 18, "on": 27})
         self.assertEqual(boot["prices"]["video_per_second"]["std"], {"off": 14, "on": 20})
         self.assertEqual(boot["prices"]["credit_usd"], 0.005)
         self.assertIsNone(boot["config"]["frame_credits"])        # nothing overridden
 
     def test_a_frame_costs_what_its_resolution_costs(self):
-        for resolution, price in (("1K", 12), ("2K", 12), ("4K", 18)):
+        for resolution, price in (("1K", 8), ("2K", 12), ("4K", 18)):
             name = f"c21{resolution}".replace("K", "k")
             self.make(name, [{"image": "a", "motion": "a"}])
             self.call("POST", f"/api/batches/{name}/clip",
@@ -500,26 +500,26 @@ class ServerTests(unittest.TestCase):
         b.save_job()
         self.run_stage("c220", "frames")
         d = self.run_stage("c220", "videos")
-        self.assertEqual(d["prices"], {"frame": 12, "video": 135, "video_per_second": 27,
+        self.assertEqual(d["prices"], {"frame": 8, "video": 135, "video_per_second": 27,
                                        "override": False, "learned": False})
-        self.assertEqual(d["spend"]["credits"], 12 + 135)
+        self.assertEqual(d["spend"]["credits"], 8 + 135)
 
     def test_a_new_batch_is_1k_unless_you_say_otherwise(self):
         """1K is kie.ai's own default and the cheapest frame there is"""
         self.assertEqual(pl.DEFAULT_IMAGE_SETTINGS["resolution"], "1K")
-        self.assertEqual(pl.credits_per_frame({}), 12)             # nothing said: the default
-        self.assertEqual(pl.credits_per_frame(None), 12)
-        self.assertEqual(pl.credits_per_frame({"resolution": "banana"}), 12)   # unknown: the usual
+        self.assertEqual(pl.credits_per_frame({}), 8)              # nothing said: the 1K default
+        self.assertEqual(pl.credits_per_frame(None), 8)
+        self.assertEqual(pl.credits_per_frame({"resolution": "banana"}), 12)   # unknown: the middle
 
         status, d = self.call("POST", "/api/batches", {"name": "c222", "clips": [{"image": "a", "motion": "a"}]})
         self.assertEqual(status, 200, d)
         self.assertEqual(d["image_settings"]["resolution"], "1K")
-        self.assertEqual(d["prices"]["frame"], 12)
+        self.assertEqual(d["prices"]["frame"], 8)
         _, boot = self.call("GET", "/api/bootstrap")
         self.assertEqual(boot["image_defaults"]["resolution"], "1K")
         d = self.run_stage("c222", "frames")
         self.assertEqual(self.kie.images[-1]["settings"]["resolution"], "1K")
-        self.assertEqual(d["spend"]["credits"], 12)
+        self.assertEqual(d["spend"]["credits"], 8)
 
     def test_what_kie_ai_says_it_charged_beats_the_estimate(self):
         """recordInfo carries creditsConsumed: the ledger is corrected to it"""
@@ -648,8 +648,8 @@ class ServerTests(unittest.TestCase):
         self.kie.hold = True                        # nothing ever finishes on its own
         try:
             self.assertEqual(self.call("POST", "/api/batches/c180/run", {"stage": "frames"})[0], 200)
-            end = time.time() + 10
-            while time.time() < end and not self.kie.images:
+            end = time.time() + 10          # wait for all three to be sent, or the re-run
+            while time.time() < end and len(self.kie.images) < len(clips):   # would send the rest
                 time.sleep(0.05)
             self.call("POST", "/api/batches/c180/stop")
             end = time.time() + 10

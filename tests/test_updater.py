@@ -154,8 +154,15 @@ class DownloadTests(unittest.TestCase):
             time.sleep(1.0)
             self.assertEqual(target.read_bytes(), b"OLDBUILD", "must wait for the app to exit")
             holder.wait(timeout=10)
-            end = time.time() + 20
-            while time.time() < end and target.read_bytes() != b"NEWBUILD":
+
+            def landed():
+                try:                       # mid-swap the file is briefly not there at all
+                    return target.read_bytes() == b"NEWBUILD"
+                except OSError:
+                    return False
+
+            end = time.time() + 45      # the script polls, then retries the rename a few times
+            while time.time() < end and not landed():
                 time.sleep(0.25)
         finally:
             holder.kill()

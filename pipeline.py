@@ -266,11 +266,12 @@ def download_file(url, dest: Path, progress=None):
 #
 # These are estimates, for the confirmation before a run. What a task really cost
 # comes back from kie.ai in recordInfo's creditsConsumed, and the ledger is
-# corrected to that the moment it finishes, so a stale number here is only ever a
-# slightly wrong quote, never a wrong total.
+# corrected to that the moment it finishes — so a number here that goes stale is
+# only ever a slightly wrong quote, never a wrong total, and a batch quotes what
+# it was last charged in preference to this list.
 #
-# From kie.ai's published price list (checked 14 September 2026), with the frame
-# prices set to what this account is actually billed. One credit is $0.005.
+# From kie.ai's published price list (checked 14 September 2026). One credit is
+# $0.005, so every price here is credits × half a cent.
 #
 # nano-banana-2 is charged per picture, by the resolution asked for. kling-3.0 is
 # charged per second of video, by the resolution its mode picks and by whether the
@@ -278,10 +279,7 @@ def download_file(url, dest: Path, progress=None):
 
 CREDIT_USD = 0.005
 
-# The estimate only has to be close: every task is corrected to kie.ai's own
-# creditsConsumed as soon as it finishes. 1K and 2K are what this account has
-# really been charged — kie.ai's price page says 8 at 1K, and bills 12.
-FRAME_CREDITS = {"1K": 12, "2K": 12, "4K": 18}
+FRAME_CREDITS = {"1K": 8, "2K": 12, "4K": 18}
 FRAME_CREDITS_FALLBACK = 12                # a resolution we don't know: quote the usual
 
 VIDEO_CREDITS_PER_SECOND = {               # mode -> {sound off, sound on}
