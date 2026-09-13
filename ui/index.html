@@ -598,6 +598,7 @@ ref: frame 1"></textarea>
         <div class="head-actions">
           <button class="btn btn-ghost btn-sm" id="bFolderBtn"></button>
           <button class="btn btn-ghost btn-sm danger-hover" id="bDeleteBtn" title="Delete this batch"></button>
+          <button class="btn" id="bTryBtn" hidden></button>
           <button class="btn btn-danger" id="bStopBtn" hidden></button>
           <button class="btn btn-lg btn-primary" id="bPrimaryBtn"></button>
         </div>
@@ -1128,6 +1129,17 @@ function renderBatch() {
   stop.disabled = b.stopping;
   setHTML(stop, `${ICON.stop} ${b.stopping ? "Stopping…" : "Stop"}`);
 
+  // a cheap look before the whole batch: draw the first one that is waiting
+  const tryBtn = $("#bTryBtn");
+  const firstFrame = !b.running && b.plan.frames_make.length > 1
+    && !b.clips.some(c => c.frame.ready) ? b.plan.frames_make[0] : null;
+  tryBtn.hidden = !firstFrame;
+  if (firstFrame) {
+    setHTML(tryBtn, `${ICON.spark} Try one first${frameCredits() ? ` · ≈ ${frameCredits()}` : ""}`);
+    tryBtn.title = `Draw ${firstFrame} on its own, before the rest`;
+    tryBtn.dataset.clip = firstFrame;
+  }
+
   const primary = $("#bPrimaryBtn");
   const next = nextAction(b);
   setHTML(primary, next.label);
@@ -1431,21 +1443,28 @@ async function startStage(stage, redo) {
       if (!done) return;                       // the user closed the queue: nothing is sent
     }
     const p = b.plan;
-    const names = redo || (stage === "frames" ? p.frames_make : p.videos_make);
+    let names = redo || (stage === "frames" ? p.frames_make : p.videos_make);
     const checking = !names.length && (stage === "frames" ? p.frames_check.length : p.videos_check.length);
     if (!names.length && !checking) { toast("Nothing to do for that step.", "error"); return; }
+    let only = redo || null;
     if (names.length) {
       const per = stage === "frames" ? frameCredits() : videoCredits(b.settings);
+      // nothing drawn yet? offer one as a test rather than the whole batch
+      const nothingYet = !b.clips.some(c => (stage === "frames" ? c.frame : c.video).ready);
+      const alt = !redo && names.length > 1 && nothingYet
+        ? { label: `Just the first${per ? ` · ≈ ${per}` : ""}`, hint: `Draw ${names[0]} on its own first. If it looks right, the button comes back for the rest.` }
+        : null;
       const ok = await confirmSpend({
         title: stage === "frames" ? `Generate ${plural(names.length, "frame")}?` : `Generate ${plural(names.length, "video")}?`,
-        names, per, what: stage === "frames" ? "frame" : "video",
+        names, per, what: stage === "frames" ? "frame" : "video", alt,
         detail: stage === "frames"
           ? `${b.image_settings.resolution} · ${b.image_settings.aspect_ratio} · nano-banana-2`
           : `${b.settings.duration}s · ${b.settings.aspect_ratio} · ${b.settings.mode} · kling-3.0`,
       });
       if (!ok) return;
+      if (ok === "one") { only = [names[0]]; names = only; }
     }
-    const d = await api(`/api/batches/${enc(name)}/run`, { method: "POST", body: { stage, redo: redo || [] } });
+    const d = await api(`/api/batches/${enc(name)}/run`, { method: "POST", body: { stage, redo: only || [] } });
     S.wasRunning[name] = d.running;
     S.batch = d;
     renderBatch();
@@ -1459,7 +1478,7 @@ async function startStage(stage, redo) {
   }
 }
 
-function confirmSpend({ title, names, per, what, detail, extra }) {
+function confirmSpend({ title, names, per, what, detail, extra, alt }) {
   return new Promise(resolve => {
     const total = per ? per * names.length : null;
     const shown = names.length > 8 ? `${names.slice(0, 8).join(", ")} +${names.length - 8} more` : names.join(", ");
@@ -1471,9 +1490,11 @@ function confirmSpend({ title, names, per, what, detail, extra }) {
           <div class="muted" style="font-size:12.5px">${total ? `${per} credits per ${what} × ${names.length}`
             : `kie.ai's price per ${what} — set it in Settings to see an estimate`}</div></div></div>
         <dl class="kv"><dt>Clips</dt><dd>${esc(shown)}</dd><dt>Settings</dt><dd>${esc(detail)}</dd></dl>
-        ${extra ? `<p class="modal-note">${esc(extra)}</p>` : ""}`,
+        ${extra ? `<p class="modal-note">${esc(extra)}</p>` : ""}
+        ${alt ? `<p class="hint" style="margin-top:14px">${esc(alt.hint)}</p>` : ""}`,
       actions: [
         { label: "Cancel", onClick: () => { m.close(); resolve(false); } },
+        ...(alt ? [{ label: alt.label, onClick: () => { m.close(); resolve("one"); } }] : []),
         { label: total ? `Spend ≈ ${total.toLocaleString()} credits` : `Generate ${plural(names.length, what)}`,
           kind: "primary", onClick: () => { m.close(); resolve(true); } },
       ],
@@ -2256,6 +2277,7 @@ function wire() {
     catch (e) { toast(e.message, "error"); }
   };
   $("#bDeleteBtn").onclick = () => { if (S.batch) confirmDelete(S.batch); };
+  $("#bTryBtn").onclick = e => { if (e.currentTarget.dataset.clip) startStage("frames", [e.currentTarget.dataset.clip]); };
   $("#bFolderBtn").onclick = () => {
     if (!S.batch) return;
     api(`/api/batches/${enc(S.batch.name)}/open`, { method: "POST", body: { target: "folder" } })
