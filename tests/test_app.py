@@ -378,6 +378,36 @@ class ServerTests(unittest.TestCase):
         self.assertEqual([r["file"] for r in d["references"]], [kept])
         self.assertTrue((self.tmp / "out" / "c174" / "refs" / kept).is_file())
 
+    def test_a_picture_a_clip_still_uses_is_not_deleted_with_the_batch_copy(self):
+        clips = [{"image": "a", "motion": "a"}, {"image": "b", "motion": "b"}]
+        _, d = self.make("c180", clips)
+        pic = base64.b64encode(png_bytes()).decode()
+        _, d = self.call("POST", "/api/batches/c180/attach",
+                         {"kind": "reference", "clips": ["c180_clip01"], "filename": "shared.png", "data": pic})
+        shared = d["clips"][0]["ref"]["file"]
+        _, d = self.call("POST", "/api/batches/c180/attach",
+                         {"kind": "reference", "file": shared})            # same picture, batch-wide
+        self.assertEqual(len(d["references"]), 1)
+
+        _, d = self.call("POST", "/api/batches/c180/references", {"remove": shared})
+        self.assertEqual(d["references"], [])
+        self.assertTrue((self.tmp / "out" / "c180" / "refs" / shared).is_file())
+        self.assertEqual(d["clips"][0]["ref"]["file"], shared)             # the clip still has it
+        self.run_stage("c180", "frames")
+        self.assertEqual([len(i["refs"]) for i in self.kie.images], [1, 0])
+
+    def test_a_draft_never_counts_as_kept_even_on_an_older_batch(self):
+        self.make("c181")
+        b = self.server.core.get_batch("c181")
+        b.job["anchor"] = {"locked": True}                                 # written by an older version
+        b.save_job()
+        self.call("POST", "/api/batches/c181/attach",
+                  {"kind": "anchor", "filename": "draft.png",
+                   "data": base64.b64encode(png_bytes()).decode()})
+        self.assertIsNone(b.anchor_file())                                 # staged, not kept
+        self.run_stage("c181", "frames")
+        self.assertEqual([len(i["refs"]) for i in self.kie.images], [0, 0])
+
     def test_rejects_a_file_that_is_not_a_picture(self):
         self.make()
         status, err = self.call("POST", "/api/batches/c150/attach",

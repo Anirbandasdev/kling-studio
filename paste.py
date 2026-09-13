@@ -108,6 +108,7 @@ def parse_master(text):
     blocks, order = {}, []         # clip number -> {"image", "motion", "ref"}
     mode = None                    # "images" | "motions" | "refs" | None
     current, field = None, None    # clip being filled, and the field a stray line continues
+    open_item = False              # is a numbered prompt still being written on the next line?
 
     def block(n):
         if n not in blocks:
@@ -123,7 +124,9 @@ def parse_master(text):
     for raw in lines:
         line = raw.strip()
         if not line:
-            field = None
+            # a blank line closes whatever was being written: prose after a gap is
+            # a stray line to report, not more of the last prompt
+            field, open_item = None, False
             continue
 
         m = _BATCH.match(line)
@@ -171,9 +174,9 @@ def parse_master(text):
             n = int(m.group(1))
             rest = m.group(2).strip() if m.re is _NUMBER else ""
             if mode == "images":
-                images[n], current, field = rest, None, None
+                images[n], current, field, open_item = rest, None, None, True
             elif mode == "motions":
-                motions[n], current, field = rest, None, None
+                motions[n], current, field, open_item = rest, None, None, True
             else:
                 current, field = n, None
                 b = block(n)
@@ -184,7 +187,7 @@ def parse_master(text):
         line = _BULLET.sub("", line)
         if mode == "refs":
             add_ref_line(line)
-        elif mode in ("images", "motions") and (images or motions):
+        elif mode in ("images", "motions") and open_item and (images or motions):
             target = images if mode == "images" else motions
             last = max(target)
             target[last] = (target[last] + " " + line).strip()

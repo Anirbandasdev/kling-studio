@@ -94,5 +94,36 @@ class MasterBlockTests(unittest.TestCase):
         self.assertIn("No batch name found", " ".join(r["warnings"]))
 
 
+class StrayLines(unittest.TestCase):
+    def test_prose_after_a_blank_line_is_reported_not_glued_on(self):
+        r = paste.parse_master("""batch: fmt1
+
+image prompts:
+1. a red door
+2. a blue door
+
+motion prompts:
+1. it opens
+2. it closes
+
+a note to myself that is not a prompt""")
+        self.assertEqual([c["motion"] for c in r["clips"]], ["it opens", "it closes"])
+        self.assertEqual(r["ignored"], ["a note to myself that is not a prompt"])
+
+    def test_a_prompt_wrapped_onto_the_next_line_still_joins(self):
+        r = paste.parse_master("""batch: w1
+
+image prompts:
+1. a very long prompt that
+   carries on to the next line
+2. second
+
+motion prompts:
+1. it moves
+2. it stops""")
+        self.assertEqual(r["clips"][0]["image"], "a very long prompt that carries on to the next line")
+        self.assertEqual(r["ignored"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

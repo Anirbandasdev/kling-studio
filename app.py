@@ -358,6 +358,8 @@ class Core:
         with self.lock:
             if name in self.active_runs():
                 raise ApiError(409, "Stop the batch before deleting it.")
+            if name in self.anchors and self.anchors[name].is_alive():
+                raise ApiError(409, "A reference is still being drawn. Wait for it, then delete.")
             out = self.cfg.output_dir.resolve()
             root = (self.cfg.output_dir / name).resolve()
             if root == out or out not in root.parents:
@@ -450,13 +452,21 @@ class Core:
             old = b.anchor().get("file")
             name = f"anchor-{int(time.time())}.png"
             pl.download_file(url, b.refs_dir / name)
-            if old and old != name:
+            if old and old != name and not self._in_use(b, old):
                 (b.refs_dir / old).unlink(missing_ok=True)
-            b.set_anchor(file=name, status="ready", error="", version=int(time.time()))
-            self.log(b, "Anchor ready. Look at it, then lock it.")
+            b.set_anchor(file=name, status="ready", error="", locked=False, version=int(time.time()))
+            self.log(b, "Reference drawn. Look at it, then keep it.")
         except Exception as e:                                  # noqa: BLE001 - the message is the UI
             b.set_anchor(status="failed", error=str(e))
             self.log(b, f"Anchor failed: {e}", "error")
+
+    def _in_use(self, b, file):
+        """is this picture still pointed at by the batch or by any clip?"""
+        if any(r.get("file") == file for r in (b.job.get("references") or [])):
+            return True
+        if (b.anchor().get("file") or "") == file:
+            return True
+        return any((c.get("ref") or {}).get("file") == file for c in b.clips())
 
     def batch_references(self, name, body):
         """Manage the pictures that apply to the whole batch, and the anchor frame."""
@@ -471,9 +481,12 @@ class Core:
             if len(kept) == len(refs):
                 raise ApiError(404, "That reference isn't on this batch.")
             b.job["references"] = kept
-            (b.refs_dir / remove).unlink(missing_ok=True) if Path(remove).name == remove else None
-            self.log(b, "Style reference removed.")
             b.save_job()
+            # a clip may still be pointing at the same picture: only bin the file
+            # once nothing at all refers to it
+            if Path(remove).name == remove and not self._in_use(b, remove):
+                (b.refs_dir / remove).unlink(missing_ok=True)
+            self.log(b, "Reference removed.")
             return self.detail(b)
 
         if "anchor" in body:
@@ -695,9 +708,10 @@ class Core:
             old = b.anchor().get("file")
             saved = save_upload(b.refs_dir, body.get("filename"), body.get("data"),
                                 stem=f"anchor-{int(time.time())}")
-            if old and old != saved:
+            if old and old != saved and not self._in_use(b, old):
                 (b.refs_dir / old).unlink(missing_ok=True)
-            b.set_anchor(file=saved, status="ready", error="", source="dropped", version=int(time.time()))
+            b.set_anchor(file=saved, status="ready", error="", locked=False, source="dropped",
+                         version=int(time.time()))
             self.log(b, "Picture staged as a reference.")
             return self.detail(b)
         if kind == "frame":
