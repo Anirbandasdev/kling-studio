@@ -302,7 +302,7 @@ class ServerTests(unittest.TestCase):
             time.sleep(0.05)
         self.fail(f"anchor never reached {want}")
 
-    def test_the_anchor_is_drawn_reviewed_then_locked(self):
+    def test_a_drawn_reference_is_reviewed_then_kept(self):
         self.make("c170")
         _, d = self.call("POST", "/api/batches/c170/anchor",
                          {"action": "prompt", "prompt": "portrait of the avatar, plain background"})
@@ -312,14 +312,15 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(d["anchor"]["status"], "working")
         d = self.wait_anchor("c170")
         self.assertTrue(d["anchor"]["file"].startswith("anchor-"))
-        self.assertIs(d["anchor"].get("locked", False), False)          # drawn, not yet in use
+        self.assertEqual(d["references"], [])                           # drawn, not kept yet
         self.assertEqual(self.kie.images[-1]["prompt"], "portrait of the avatar, plain background")
 
-        self.run_stage("c170", "frames")                                # unlocked: not used yet
+        self.run_stage("c170", "frames")                                # not kept: not used
         self.assertEqual([len(i["refs"]) for i in self.kie.images[1:]], [0, 0])
 
-        _, d = self.call("POST", "/api/batches/c170/anchor", {"action": "lock"})
-        self.assertIs(d["anchor"]["locked"], True)
+        _, d = self.call("POST", "/api/batches/c170/anchor", {"action": "use"})
+        self.assertEqual(len(d["references"]), 1)
+        self.assertEqual(d["anchor"]["prompt"], "portrait of the avatar, plain background")
         self.kie.images.clear()
         self.run_stage("c170", "frames", redo=["c170_clip01", "c170_clip02"])
         self.assertEqual([len(i["refs"]) for i in self.kie.images], [1, 1])
@@ -332,7 +333,7 @@ class ServerTests(unittest.TestCase):
         pic = base64.b64encode(png_bytes()).decode()
         self.call("POST", "/api/batches/c173/attach",
                   {"kind": "anchor", "filename": "face.png", "data": pic})
-        self.call("POST", "/api/batches/c173/anchor", {"action": "lock"})
+        self.call("POST", "/api/batches/c173/anchor", {"action": "use"})
         self.call("POST", "/api/batches/c173/attach",
                   {"kind": "reference", "filename": "style.png", "data": pic})          # whole batch
         self.call("POST", "/api/batches/c173/attach",
@@ -342,28 +343,40 @@ class ServerTests(unittest.TestCase):
         # clip 1: anchor + style + its own picture. clip 2: anchor + style only
         self.assertEqual([len(i["refs"]) for i in self.kie.images], [3, 2])
 
-    def test_the_anchor_needs_a_prompt_and_a_picture_before_locking(self):
+    def test_drawing_needs_a_prompt_and_keeping_needs_a_picture(self):
         self.make("c171")
         status, err = self.call("POST", "/api/batches/c171/anchor", {"action": "generate"})
         self.assertEqual(status, 400)
         self.assertIn("what the anchor should show", err["error"])
-        status, err = self.call("POST", "/api/batches/c171/anchor", {"action": "lock"})
+        status, err = self.call("POST", "/api/batches/c171/anchor", {"action": "use"})
         self.assertEqual(status, 400)
-        self.assertIn("before locking", err["error"])
+        self.assertIn("first", err["error"])
 
-    def test_your_own_picture_can_be_the_anchor(self):
+    def test_your_own_picture_can_be_kept_as_a_reference(self):
         self.make("c172")
         _, d = self.call("POST", "/api/batches/c172/attach",
                          {"kind": "anchor", "filename": "me.png",
                           "data": base64.b64encode(png_bytes()).decode()})
         self.assertEqual(d["anchor"]["source"], "dropped")
-        _, d = self.call("POST", "/api/batches/c172/anchor", {"action": "lock"})
+        _, d = self.call("POST", "/api/batches/c172/anchor", {"action": "use"})
+        self.assertEqual(len(d["references"]), 1)
         self.run_stage("c172", "frames")
         self.assertEqual([len(i["refs"]) for i in self.kie.images], [1, 1])
 
-        _, d = self.call("POST", "/api/batches/c172/anchor", {"action": "clear"})
-        self.assertEqual(d["anchor"], {})
+        _, d = self.call("POST", "/api/batches/c172/references", {"remove": d["references"][0]["file"]})
+        self.assertEqual(d["references"], [])
         self.assertEqual(list((self.tmp / "out" / "c172" / "refs").glob("anchor-*")), [])
+
+    def test_a_draft_can_be_thrown_away_without_touching_kept_pictures(self):
+        self.make("c174")
+        pic = base64.b64encode(png_bytes()).decode()
+        self.call("POST", "/api/batches/c174/attach", {"kind": "anchor", "filename": "a.png", "data": pic})
+        _, d = self.call("POST", "/api/batches/c174/anchor", {"action": "use"})
+        kept = d["references"][0]["file"]
+        self.call("POST", "/api/batches/c174/attach", {"kind": "anchor", "filename": "b.png", "data": pic})
+        _, d = self.call("POST", "/api/batches/c174/anchor", {"action": "discard"})
+        self.assertEqual([r["file"] for r in d["references"]], [kept])
+        self.assertTrue((self.tmp / "out" / "c174" / "refs" / kept).is_file())
 
     def test_rejects_a_file_that_is_not_a_picture(self):
         self.make()

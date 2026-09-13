@@ -729,40 +729,34 @@ footer .sp { margin-left: auto; }
   <section id="refs">
     <div class="eyebrow">Consistency</div>
     <h2>Keeping the same face across clips</h2>
-    <p class="lede">Nano Banana 2 draws each frame from scratch, so left alone it invents a slightly different person every time. The <b>References</b> panel at the top of a batch is where you stop that — and the anchor is the strongest tool in it.</p>
+    <p class="lede">Nano Banana 2 draws each frame from scratch, so left alone it invents a slightly different person every time. The <b>References</b> panel at the top of a batch is where you stop that: every picture in it is sent with every frame.</p>
 
     <ol class="steps">
       <li>
         <div>
-          <h4>Describe the character, not a scene</h4>
-          <p>In the anchor box, write the portrait you want locked: <em>studio portrait of the woman, plain grey background, neutral expression</em>. It is never one of your clips, so keep the scene out of it.</p>
+          <h4>Have a photo? Add a picture</h4>
+          <p>The quickest and the strongest: a real photo of the person or product. It is used from the moment you add it, and costs nothing.</p>
         </div>
       </li>
       <li>
         <div>
-          <h4>Draw just the anchor</h4>
-          <p><b>Generate anchor</b> costs one frame — 12 credits — and nothing else is drawn. It appears beside the box a few seconds later.</p>
+          <h4>No photo? Draw one</h4>
+          <p><b>Draw one</b> opens a box: describe the subject on its own — <em>studio portrait of the woman, plain grey background</em> — and it draws just that picture for 12 credits. Nothing else is made.</p>
         </div>
       </li>
       <li>
         <div>
-          <h4>Look at it. Redraw until it's right</h4>
-          <p>Wrong face? Change the wording and press <b>Redraw anchor</b>. You're only ever risking 12 credits, not the whole batch. Or press <b>Use my picture</b> and skip drawing entirely.</p>
-        </div>
-      </li>
-      <li>
-        <div>
-          <h4>Lock it</h4>
-          <p><b>Lock → use on every frame</b> pins it. From then on every frame in the batch is drawn with the anchor attached, so the same person carries through all of them. Unlock at any time.</p>
+          <h4>Look at it before it counts</h4>
+          <p>Wrong face? <b>Draw again</b> for another 12, or <b>Throw away</b>. Only <b>Keep it</b> adds it to the list — so a bad draw never reaches your clips.</p>
         </div>
       </li>
     </ol>
 
     <div class="flow" style="grid-template-columns:1fr 1fr 1fr">
       <div class="flow-card">
-        <b>A style reference</b>
-        <span>One picture applied to <em>every</em> frame in the batch — your avatar, the product, a look you want matched. Add it once and it goes on all of them.</span>
-        <em>Add style reference</em>
+        <b>Pictures you add</b>
+        <span>Photos or drawn ones, as many as you need — the person, the product, a look to match. All of them go on every frame.</span>
+        <em>Add a picture · Draw one</em>
       </div>
       <div class="flow-card">
         <b>An anchor frame</b>
@@ -771,7 +765,7 @@ footer .sp { margin-left: auto; }
       </div>
       <div class="flow-card">
         <b>One picture, many clips</b>
-        <span>When several clips ask for a picture, the popup offers <b>Use it for all clips waiting</b> — upload once, it covers the lot.</span>
+        <span>When clips ask for a picture of their own, the popup offers <b>Use it for all clips waiting</b> — upload once, it covers the lot.</span>
         <em>In the popup</em>
       </div>
     </div>
@@ -781,10 +775,11 @@ footer .sp { margin-left: auto; }
         <div class="shot-bar"><i></i><i></i><i></i><span>References panel</span></div>
         <div class="shot-body">
           <div class="panel">
-            <div class="panel-label">References <span style="float:right;text-transform:none;letter-spacing:0;color:var(--app-text-3)">Used on every frame in this batch</span></div>
+            <div class="panel-label">References <span style="float:right;text-transform:none;letter-spacing:0;color:var(--app-text-3)">Sent with every frame in this batch</span></div>
             <div style="display:flex;gap:10px;align-items:center">
               <div style="width:64px;height:64px;border-radius:11px;background:linear-gradient(150deg,#6a4bd8,#2aa7c4);border:1px solid var(--app-line)"></div>
-              <div style="width:64px;height:64px;border-radius:11px;border:1px dashed var(--app-line);display:grid;place-items:center;font-size:10px;color:var(--app-text-3);text-align:center;padding:6px">Add style reference</div>
+              <div style="width:64px;height:64px;border-radius:11px;border:1px dashed var(--app-line);display:grid;place-items:center;font-size:10px;color:var(--app-text-3);text-align:center;padding:6px">Add a picture</div>
+              <div style="width:64px;height:64px;border-radius:11px;border:1px dashed var(--app-line);display:grid;place-items:center;font-size:10px;color:var(--app-text-3);text-align:center;padding:6px">Draw one · ≈ 12</div>
             </div>
             <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--app-line);display:flex;justify-content:space-between;gap:14px;align-items:center">
               <div>
@@ -799,17 +794,17 @@ footer .sp { margin-left: auto; }
               <span style="position:absolute;left:6px;bottom:6px;padding:2px 8px;border-radius:999px;background:rgba(6,7,11,.8);color:var(--app-green);font-size:9.5px;font-weight:700">Locked</span>
             </div>
             <div>
-              <div class="panel-label">Anchor — the character to lock</div>
+              <div class="panel-label">Draw a reference</div>
               <div class="prompt-box" style="font-size:11px">studio portrait of the woman, plain grey background, neutral expression</div>
               <div class="btn-row" style="margin-top:9px">
-                <span class="cta" style="padding:6px 10px;font-size:11px">Redraw anchor · ≈ 12</span>
-                <span class="mini">Unlock</span><span class="mini">Use my picture</span>
+                <span class="mini">Throw away</span><span class="mini">Draw again · ≈ 12</span>
+                <span class="cta" style="padding:6px 10px;font-size:11px">Keep it</span>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <figcaption>The anchor is drawn and approved on its own before any scene frame exists. A style reference goes on every frame too — anchor plus style is the most consistent setting there is.</figcaption>
+      <figcaption>One list. A picture you add is used straight away; a picture you draw waits for <b>Keep it</b>. An anchor frame stacks on top of both.</figcaption>
     </figure>
 
     <div class="note">

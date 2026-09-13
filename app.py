@@ -388,22 +388,30 @@ class Core:
             b.set_anchor(prompt=str(body.get("prompt") or "").strip())
             return self.detail(b)
 
-        if action in ("lock", "unlock"):
+        if action in ("use", "lock"):      # "lock" kept for older pages
             a = b.anchor()
-            if action == "lock" and not (a.get("file") and (b.refs_dir / a["file"]).is_file()):
-                raise ApiError(400, "Draw the anchor (or drop a picture in) before locking it.")
-            b.set_anchor(locked=action == "lock")
-            self.log(b, "Anchor locked: every frame is drawn from it." if action == "lock"
-                        else "Anchor unlocked: frames no longer use it.")
+            if not (a.get("file") and (b.refs_dir / a["file"]).is_file()):
+                raise ApiError(400, "Draw it (or drop a picture in) first.")
+            refs = b.job.setdefault("references", [])
+            if not any(r.get("file") == a["file"] for r in refs):
+                refs.append({"kind": "file", "file": a["file"]})
+            b.job["anchor"] = {"prompt": a.get("prompt", "")}     # the prompt stays for a redraw
+            b.save_job()
+            self.log(b, "Reference kept: every frame in this batch is drawn with it.")
             return self.detail(b)
 
-        if action == "clear":
+        if action == "unlock":                                    # older pages
+            b.set_anchor(locked=False)
+            return self.detail(b)
+
+        if action in ("clear", "discard"):
             a = b.anchor()
-            if a.get("file"):
-                (b.refs_dir / a["file"]).unlink(missing_ok=True)
-            b.job["anchor"] = {}
+            file = a.get("file")
+            if file and not any((r.get("file") == file) for r in (b.job.get("references") or [])):
+                (b.refs_dir / file).unlink(missing_ok=True)       # only if it never joined the list
+            b.job["anchor"] = {} if action == "clear" else {"prompt": a.get("prompt", "")}
             b.save_job()
-            self.log(b, "Anchor removed.")
+            self.log(b, "Draft reference discarded.")
             return self.detail(b)
 
         if action == "generate":
@@ -690,7 +698,7 @@ class Core:
             if old and old != saved:
                 (b.refs_dir / old).unlink(missing_ok=True)
             b.set_anchor(file=saved, status="ready", error="", source="dropped", version=int(time.time()))
-            self.log(b, "Anchor replaced with a picture you dropped in.")
+            self.log(b, "Picture staged as a reference.")
             return self.detail(b)
         if kind == "frame":
             clip = b.clip(clip_name)
