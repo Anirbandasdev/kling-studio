@@ -364,6 +364,116 @@ class Batch:
         self.save_job()
         return a
 
+    def reference_plan(self, name):
+        """Every picture a frame for this clip is drawn with, in the order it is sent.
+
+        Each entry is (path, label, waiting_on): waiting_on names the clip whose frame
+        has to exist first, so the caller can say so instead of sending a broken job.
+        The locked anchor and the batch's own pictures ride along with whatever the clip
+        asks for itself, and the same file is never sent twice.
+        """
+        out, seen = [], set()
+
+        def add(path, label, waiting_on=None):
+            key = str(path).lower()
+            if key in seen:
+                return
+            seen.add(key)
+            out.append((Path(path), label, waiting_on))
+
+        anchor = self.anchor_file()
+        if anchor:
+            add(anchor, "the kept reference")
+        lead = self.anchor_frame_name()
+        if lead and lead != name:
+            add(self.frame_path(lead), f"frame {self.anchor_frame()}",
+                None if self.frame_ready(lead) else lead)
+        for ref in self.job.get("references") or []:
+            path = Path(ref["path"]) if ref.get("path") else (self.refs_dir / ref["file"] if ref.get("file") else None)
+            if path and path.is_file():
+                add(path, "a style reference")
+        need = self.reference_urls_needed(name)
+        if need and need[0] == "file":
+            add(need[1], "its own picture")
+        elif need and need[0] == "frame":
+            clips = self.clips()
+            other = clips[need[1] - 1]["name"] if 0 < need[1] <= len(clips) else None
+            add(self.frame_path(other) if other else f"<frame {need[1]}>", f"frame {need[1]}",
+                None if (other and self.frame_ready(other)) else (other or f"frame {need[1]}"))
+        return out
+
+    # ---- what this batch has cost
+
+    def spend_log(self):
+        """every paid call this batch has made, oldest first"""
+        try:
+            items = read_json(self.root / "spend.json", []) or []
+        except (OSError, ValueError):
+            return []
+        return [i for i in items if isinstance(i, dict)]
+
+    def record_spend(self, what, credits, clip=""):
+        """Note one paid call. kie.ai charges when a task is created, so this is
+        written at submit time — not when the file finally arrives."""
+        with self._lock:
+            items = self.spend_log()
+            items.append({"at": time.time(), "what": what, "clip": clip, "credits": int(credits or 0)})
+            try:
+                write_json(self.root / "spend.json", items[-4000:])
+            except OSError:
+                pass          # a ledger that can't be written must never fail a run
+
+    def spend(self):
+        """totals for the page: what was sent, and how much of it had a known price"""
+        out = {"credits": 0, "calls": 0, "frames": 0, "videos": 0, "references": 0, "unpriced": 0}
+        for it in self.spend_log():
+            key = {"frame": "frames", "video": "videos", "reference": "references"}.get(it.get("what"))
+            if not key:
+                continue
+            credits = int(it.get("credits") or 0)
+            out["calls"] += 1
+            out[key] += 1
+            out["credits"] += credits
+            if not credits:
+                out["unpriced"] += 1
+        return out
+
+    # ---- back out again
+
+    def master_prompt(self):
+        """This batch written back out in the format paste.py reads.
+
+        Enough to rebuild it, or to hand it to someone else: settings, the batch's
+        reference pictures as full paths, then one numbered block per clip.
+        """
+        s = {**DEFAULT_SETTINGS, **(self.job.get("settings") or {})}
+        im = {**DEFAULT_IMAGE_SETTINGS, **(self.job.get("image_settings") or {})}
+        lines = [f"batch: {self.name}",
+                 f"settings: {im['aspect_ratio']} · {s['duration']}s · {s['mode']} · "
+                 f"sound {'on' if s.get('sound') else 'off'} · {im['resolution']}"]
+        refs = [str(Path(r["path"]) if r.get("path") else self.refs_dir / r["file"])
+                for r in (self.job.get("references") or []) if r.get("path") or r.get("file")]
+        if refs:
+            lines.append("references:")
+            lines += [f"  {r}" for r in refs]
+        for i, c in enumerate(self.clips(), 1):
+            lines += ["", f"{i}."]
+            if c.get("image"):
+                lines.append(f"image: {c['image']}")
+            if c.get("motion"):
+                lines.append(f"motion: {c['motion']}")
+            ref = c.get("ref") or {}
+            if ref.get("kind") == "frame":
+                lines.append(f"ref: frame {ref.get('index')}")
+            elif ref.get("kind") == "path":
+                lines.append(f"ref: {ref['path']}")
+            elif ref.get("kind") == "file":
+                lines.append(f"ref: {self.refs_dir / ref['file']}")
+            elif ref:
+                note = str(ref.get("note") or "").strip()
+                lines.append(f"ref: needed: {note}" if note else "ref: needed")
+        return "\n".join(lines) + "\n"
+
     def clip(self, name):
         return next((c for c in self.clips() if c["name"] == name), None)
 
@@ -530,10 +640,11 @@ class Runner(threading.Thread):
       emit("finished", cancelled=bool, error=str|None)
     """
 
-    def __init__(self, batch: Batch, api_key, stage, make, check, emit):
+    def __init__(self, batch: Batch, api_key, stage, make, check, emit, frame_credits=0):
         super().__init__(daemon=True)
         self.batch = batch
         self.api_key = api_key
+        self.frame_credits = int(frame_credits or 0)
         self.stage = stage                              # "frames" or "videos"
         self.part = "frame" if stage == "frames" else "video"   # the half of a clip's state it writes
         self.make = list(make)
@@ -615,29 +726,12 @@ class Runner(threading.Thread):
     # ---- stage 1: send the work
 
     def _reference_urls(self, name):
-        """upload whatever this clip's reference points at; [] when it has none"""
-        b = self.batch
+        """upload whatever this clip is drawn with; [] when it has nothing"""
         urls = []
-        anchor = b.anchor_file()          # the locked character, on every frame in the batch
-        if anchor:
-            urls.append(self._upload(anchor))
-        lead = b.anchor_frame_name()      # and the anchor frame, on every clip but itself
-        if lead and lead != name:
-            if not b.frame_ready(lead):
-                raise RuntimeError(f"needs frame {b.anchor_frame()} first, and that frame isn't ready")
-            urls.append(self._upload(b.frame_path(lead)))
-        for ref in b.job.get("references") or []:
-            path = Path(ref["path"]) if ref.get("path") else (b.refs_dir / ref["file"] if ref.get("file") else None)
-            if path and path.is_file():
-                urls.append(self._upload(path))
-        need = b.reference_urls_needed(name)
-        if need and need[0] == "file":
-            urls.append(self._upload(Path(need[1])))
-        elif need and need[0] == "frame":
-            other = b.clips()[need[1] - 1]["name"] if 0 < need[1] <= len(b.clips()) else None
-            if not other or not b.frame_ready(other):
-                raise RuntimeError(f"needs frame {need[1]} first, and that frame isn't ready")
-            urls.append(self._upload(b.frame_path(other)))
+        for path, label, waiting_on in self.batch.reference_plan(name):
+            if waiting_on:
+                raise RuntimeError(f"needs {label} first, and that frame isn't ready")
+            urls.append(self._upload(path))
         return urls
 
     def _order(self, names):
@@ -662,8 +756,15 @@ class Runner(threading.Thread):
             try:
                 if self.stage == "frames":
                     urls = self._reference_urls(name)
-                    tid = submit_image(clip["image"], b.job.get("image_settings", {}), urls, self.api_key)
-                    extra = {"references_used": len(urls)}
+                    over = len(urls) - MAX_REFERENCES
+                    if over > 0:
+                        self._log(f"{name}: {len(urls)} reference pictures is past kie.ai's limit of "
+                                  f"{MAX_REFERENCES}, so the last {over} will not be sent. Remove a few "
+                                  "from the References panel to choose which ones count.", "warn")
+                    tid = submit_image(clip["image"], b.job.get("image_settings", {}),
+                                       urls[:MAX_REFERENCES], self.api_key)
+                    extra = {"references_used": min(len(urls), MAX_REFERENCES),
+                             "references_dropped": over if over > 0 else None}
                 else:
                     urls = [self._upload(b.frame_path(name))]
                     tid = submit_video(urls[0], clip["motion"], b.job.get("settings", {}), self.api_key)
@@ -678,8 +779,11 @@ class Runner(threading.Thread):
                 # kept out of the try: once kie.ai has the task (and the credits), a problem
                 # saving state must never look like a failure that would send it again
                 self.check.append(name)
+                price = self.frame_credits if self.stage == "frames" else (credits_per_video(
+                    b.job.get("settings", {})) or 0)
                 self._set(name, status="generating" if self.stage == "frames" else "rendering",
-                          task_id=tid, submitted_at=time.time(), **extra)
+                          task_id=tid, submitted_at=time.time(), credits=price or None, **extra)
+                b.record_spend(self.part, price, name)
                 self._log(f"{name}: sent ({tid})")
             if i < len(todo) - 1 and self._cancel.wait(SUBMIT_GAP):
                 return

@@ -251,6 +251,11 @@ h2 { margin: 0; font: 650 16.5px/1.3 var(--display); letter-spacing: -.015em; }
 .bg-note .ico { color: var(--text-3); }
 .bg-note .ico svg { width: 16px; height: 16px; }
 .bg-note.error .ico { color: var(--red); }
+.bg-note.warn { color: var(--amber); }
+.bg-note.warn .ico { color: var(--amber); }
+.stats .spent { color: var(--text-3); cursor: help; }
+.ref-count { margin-left: auto; font-size: 12px; color: var(--text-3); }
+.ref-count.over { color: var(--amber); font-weight: 650; }
 .log { margin-top: 24px; padding: 0; overflow: hidden; }
 .log-head { width: 100%; display: flex; align-items: center; gap: 14px; padding: 14px 20px; border: 0; background: transparent; cursor: pointer; text-align: left; font-weight: 650; font-size: 13px; }
 .log-head .last { flex: 1; min-width: 0; font-size: 12px; font-weight: 400; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
@@ -315,6 +320,32 @@ h2 { margin: 0; font: 650 16.5px/1.3 var(--display); letter-spacing: -.015em; }
 .ref-preview { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
 .ref-preview img { width: 76px; height: 76px; object-fit: cover; border-radius: 11px; border: 1px solid var(--border-strong); }
 .queue-count { font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+/* which clips one picture goes to */
+.picker { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--border); }
+.picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.picker-head .label { font-size: 12px; color: var(--text-3); }
+.picker-quick { display: flex; gap: 6px; flex-wrap: wrap; }
+.picker-quick button { height: 26px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text-2); font: 600 11.5px/1 var(--font); cursor: pointer; }
+.picker-quick button:hover { border-color: var(--accent); color: var(--text); }
+.picks { display: flex; flex-wrap: wrap; gap: 7px; max-height: 168px; overflow: auto; }
+.pick { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text-2); font: 600 12px/1 var(--font); cursor: pointer; }
+.pick input { width: 14px; height: 14px; accent-color: var(--accent); margin: 0; }
+.pick.on { border-color: rgba(139, 123, 255, .55); background: var(--accent-soft); color: #ddd8ff; }
+.pick .ask { color: var(--amber); font-size: 11px; }
+/* master prompt + storage */
+.copy-box { width: 100%; min-height: 230px; max-height: 46vh; resize: vertical; font: 12px/1.65 var(--mono); color: var(--text); background: #0b0d12; border: 1px solid var(--border-strong); border-radius: 14px; padding: 14px; }
+.store-total { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.store-total b { font: 750 25px/1.1 var(--display); letter-spacing: -.03em; }
+.store-list { margin-top: 16px; max-height: 44vh; overflow: auto; border: 1px solid var(--border); border-radius: 14px; }
+.store-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.store-row:last-child { border-bottom: 0; }
+.store-row input { width: 16px; height: 16px; accent-color: var(--accent); }
+.store-row .who { min-width: 0; }
+.store-row .who b { display: block; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.store-row .who span { font-size: 11.5px; color: var(--text-3); }
+.store-row .size { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.store-row.archived { background: rgba(255, 255, 255, .02); }
+.store-row.archived .who b::after { content: " · archived"; color: var(--text-3); font-weight: 400; font-size: 11.5px; }
 .toasts { position: fixed; right: 24px; bottom: 24px; z-index: 60; display: flex; flex-direction: column; align-items: flex-end; gap: 9px; pointer-events: none; transition: bottom .2s ease; }
 body[data-view="new"] .toasts { bottom: 104px; }        /* the action bar lives down there */
 .toast { max-width: 420px; padding: 12px 16px; border-radius: 14px; background: rgba(30, 33, 44, .97); border: 1px solid var(--border-strong); box-shadow: 0 18px 40px -14px rgba(0, 0, 0, .85); font-size: 13px; line-height: 1.5; backdrop-filter: blur(14px); animation: slideIn .24s cubic-bezier(.2, .9, .3, 1); }
@@ -597,6 +628,7 @@ ref: frame 1"></textarea>
         </div>
         <div class="head-actions">
           <button class="btn btn-ghost btn-sm" id="bFolderBtn"></button>
+          <button class="btn btn-ghost btn-sm" id="bCopyBtn" title="Copy this batch back out as a master prompt"></button>
           <button class="btn btn-ghost btn-sm danger-hover" id="bDeleteBtn" title="Delete this batch"></button>
           <button class="btn btn-lg" id="bTryBtn" hidden></button>
           <button class="btn btn-danger" id="bStopBtn" hidden></button>
@@ -869,7 +901,7 @@ function noteFinish(d) {
   S.wasRunning[d.name] = d.running;
   if (was && !d.running) {
     const c = d.counts;
-    if (d.stop_reason) toast(`${d.name}: ${d.stop_reason}`, "error", 12000);
+    if (d.stop_reason) toast(`${d.name}: ${d.stop_reason}`, d.stop_kind === "stopped" ? "info" : "error", 12000);
     else if (c.failed) toast(`${d.name}: ${c.frames} frames, ${c.videos} videos, ${c.failed} failed`, "error", 9000);
     else toast(`${d.name}: ${c.frames} frames, ${c.videos} videos done`, "success", 7000);
     refreshBatches();
@@ -1105,23 +1137,30 @@ function renderBatch() {
   $("#bProgressText").textContent = c.videos === c.total && c.total
     ? `All ${plural(c.total, "clip")} finished`
     : `${c.frames} of ${c.total} frames · ${c.videos} of ${c.total} videos`;
+  const sp = b.spend || null;
   setHTML($("#bStats"), [
     busy ? `<span><b>${busy}</b> working</span>` : "",
     c.failed ? `<span style="color:var(--red)"><b style="color:inherit">${c.failed}</b> failed</span>` : "",
     c.blocked ? `<span style="color:var(--amber)"><b style="color:inherit">${c.blocked}</b> need a reference</span>` : "",
+    sp && sp.calls ? `<span class="spent" title="${esc(spendTitle(sp))}">${sp.credits
+      ? `≈ <b>${sp.credits.toLocaleString()}</b> credits sent` : `<b>${sp.calls}</b> paid calls`}</span>` : "",
   ].join(""));
   $("#bFramesFill").style.width = `${c.total ? c.frames / c.total * 50 : 0}%`;
   $("#bVideosFill").style.width = `${c.total ? c.videos / c.total * 50 : 0}%`;
 
   const note = $("#bNote");
   const stopped = !b.running && !!b.stop_reason;
+  const byYou = stopped && b.stop_kind === "stopped";
   note.hidden = !b.running && !stopped;
-  note.classList.toggle("error", stopped);
+  note.classList.toggle("error", stopped && !byYou);
+  note.classList.toggle("warn", byYou);
   setHTML(note, b.running
     ? `<span class="ico">${ICON.coffee}</span><span>${esc(rotating(RUNNING_QUIPS))} You can close this window — the batch keeps going and the files still download.</span>`
+    : byYou ? `<span class="ico">${ICON.stop}</span><span>${esc(b.stop_reason)}</span>`
     : stopped ? `<span class="ico">${ICON.alert}</span><span>The last run stopped early: ${esc(b.stop_reason)}</span>` : "");
 
   setHTML($("#bFolderBtn"), `${ICON.folder} Open folder`);
+  setHTML($("#bCopyBtn"), `${ICON.clipboard} <span class="lbl">Copy prompts</span>`);
   setHTML($("#bDeleteBtn"), `${ICON.trash} <span class="lbl">Delete</span>`);
   $("#bDeleteBtn").disabled = b.running;
   const stop = $("#bStopBtn");
@@ -1156,6 +1195,22 @@ function anchorOf(b) {
   return b.anchor_frame ? { index: b.anchor_frame, clips: Math.max(0, b.clips.length - 1) } : null;
 }
 
+// what this batch has already sent to kie.ai, spelled out for the tooltip
+function spendTitle(sp) {
+  const bits = [sp.frames ? plural(sp.frames, "frame") : "", sp.videos ? plural(sp.videos, "video") : "",
+    sp.references ? plural(sp.references, "drawn reference") : ""].filter(Boolean);
+  return `${bits.join(" + ") || "nothing"} sent to kie.ai since this batch was made.` +
+    (sp.unpriced ? ` ${sp.unpriced} of them had no price set at the time, so they aren't counted.` : "") +
+    " kie.ai refunds some failed jobs, so your real balance may have moved less.";
+}
+
+// how many pictures the heaviest frame would carry, against kie.ai's ceiling
+function refLoad(b) {
+  const limit = b.reference_limit || 14;
+  const most = Math.max(0, ...b.clips.map(c => c.references_planned || 0));
+  return { most, limit, over: most > limit, worst: b.clips.filter(c => (c.references_planned || 0) > limit) };
+}
+
 function renderRefs() {
   const b = S.batch;
   const host = $("#bRefs");
@@ -1164,10 +1219,17 @@ function renderRefs() {
   const anchor = anchorOf(b);
   const waiting = b.clips.filter(c => c.needs_reference).length;
   host.hidden = false;
+  const load = refLoad(b);
   setHTML(host, `<div class="card-head">
       <span class="card-title">References</span>
       <span class="dim" style="font-size:12.5px">Every picture here is sent with every frame in this batch</span>
+      ${load.most ? `<span class="ref-count${load.over ? " over" : ""}" title="${esc(load.over
+        ? `kie.ai only takes ${load.limit} pictures per frame. Anything past that is dropped, so remove a few.`
+        : `kie.ai takes up to ${load.limit} pictures per frame.`)}">${load.most} of ${load.limit} per frame</span>` : ""}
     </div>
+    ${load.over ? `<p class="modal-note" style="margin:0 0 14px">The busiest frame would carry ${
+      load.most} pictures and kie.ai only accepts ${load.limit}. The last ${load.most - load.limit} would be
+      thrown away — remove a few here, or clear the anchor frame, so you choose which ones count.</p>` : ""}
     <div class="refs-row">
       ${files.map(r => `<figure class="ref-thumb"><img src="${withToken(`/api/batches/${enc(b.name)}/ref/${enc(r.file)}`)}" alt="">
         <button class="ref-x" data-remove="${esc(r.file)}" title="Remove this reference">${ICON.trash}</button></figure>`).join("")}
@@ -1175,6 +1237,7 @@ function renderRefs() {
         <button class="ref-x" data-remove="${esc(r.path)}" title="Remove this reference">${ICON.trash}</button></figure>`).join("")}
       <button class="ref-add" data-act="add">${ICON.image}<span>Add a picture</span></button>
       <button class="ref-add" data-act="draw">${ICON.spark}<span>Draw one${frameCredits() ? ` · ≈ ${frameCredits()}` : ""}</span></button>
+      <button class="ref-add" data-act="some" title="One picture for the clips you choose, not the whole batch">${ICON.check}<span>Only some clips</span></button>
     </div>
     <p class="hint">Hold a face, a product or a look steady: drop in a photo you already have, or have one
       drawn and check it before it counts.</p>
@@ -1213,6 +1276,8 @@ function renderRefs() {
       } catch (err) { toast(err.message, "error"); }
     } else if (drawBtn) {
       openDrawReference(b);
+    } else if (e.target.closest('[data-act="some"]')) {
+      referencePopup(null, 0, 0).then(() => pollBatch());
     }
   };
   const pick = $("#anchorPick", host);
@@ -1374,21 +1439,24 @@ function updateCard(el, c, i) {
     el.onmouseleave = v ? () => { v.pause(); v.currentTime = 0; } : null;
   }
 
-  // what this frame is drawn with: the locked anchor and the batch's style pictures
-  // ride along with whatever the clip asks for itself
-  const parts = [];
-  for (let i = 0; i < (b.references || []).length; i++) parts.push("a style reference");
-  if (b.anchor_frame && b.clips[b.anchor_frame - 1] && b.clips[b.anchor_frame - 1].name !== c.name) {
-    parts.push(`frame ${b.anchor_frame}`);
-  }
-  if (c.ref && !c.needs_reference) parts.push(c.ref.kind === "frame" ? `frame ${c.ref.index}` : "a picture of its own");
+  // what this frame is drawn with, taken from the server's own list so the badge and
+  // the run can never disagree: the kept reference and the batch's style pictures ride
+  // along with whatever the clip asks for itself
+  const parts = c.reference_labels || [];
+  const limit = b.reference_limit || 14;
+  const over = parts.length > limit;
   const used = c.frame && typeof c.frame.references_used === "number" ? c.frame.references_used : parts.length;
   const refText = c.needs_reference ? "needs a reference"
+    : over ? `${limit} of ${parts.length} references`
     : used > 1 ? `${used} references`
-    : parts.length === 1 ? (parts[0] === "a picture of its own" ? "uses a reference picture" : `uses ${parts[0]}`)
+    : parts.length === 1 ? (parts[0] === "its own picture" ? "uses a reference picture" : `uses ${parts[0]}`)
     : used === 1 ? "uses a reference" : "";
+  const refTitle = !parts.length ? ""
+    : over ? `Drawn with ${parts.slice(0, limit).join(" + ")}. kie.ai's limit is ${limit}, so ${
+        parts.slice(limit).join(" + ")} would be dropped.`
+    : `Drawn with ${parts.join(" + ")}`;
   setHTML($(".clip-name", el), `<span>${esc(c.name)}</span>${refText ?
-    `<span class="ref-badge${c.needs_reference ? " ask" : ""}" title="${esc(parts.length ? `Drawn with ${parts.join(" + ")}` : "")}">${esc(refText)}</span>` : ""}`);
+    `<span class="ref-badge${c.needs_reference || over ? " ask" : ""}" title="${esc(refTitle)}">${esc(refText)}</span>` : ""}`);
   setHTML($(".prompt.image", el), `<b>Image</b> ${esc(c.image || "no image prompt")}`);
   setHTML($(".prompt.motion", el), `<b>Motion</b> ${esc(c.motion || "no motion prompt")}`);
   const err = $(".clip-error", el);
@@ -1454,9 +1522,14 @@ async function startStage(stage, redo) {
       const alt = !redo && names.length > 1 && nothingYet
         ? { label: `Just the first${per ? ` · ≈ ${per}` : ""}`, hint: `Draw ${names[0]} on its own first. If it looks right, the button comes back for the rest.` }
         : null;
+      // kie.ai drops anything past its picture limit, so say so before the credits go
+      const load = refLoad(b);
+      const hit = stage === "frames" ? load.worst.filter(c => names.includes(c.name)) : [];
       const ok = await confirmSpend({
         title: stage === "frames" ? `Generate ${plural(names.length, "frame")}?` : `Generate ${plural(names.length, "video")}?`,
         names, per, what: stage === "frames" ? "frame" : "video", alt,
+        extra: hit.length ? `${hit.length === 1 ? "One of these frames" : `${hit.length} of these frames`} would carry more than kie.ai's ${
+          load.limit} reference pictures, so the extras are dropped. Cancel and remove a few if it matters which ones count.` : undefined,
         detail: stage === "frames"
           ? `${b.image_settings.resolution} · ${b.image_settings.aspect_ratio} · nano-banana-2`
           : `${b.settings.duration}s · ${b.settings.aspect_ratio} · ${b.settings.mode} · kling-3.0`,
@@ -1515,50 +1588,88 @@ async function referenceQueue(names) {
   return true;
 }
 
+// One picture for one clip, for every clip still waiting, or for exactly the ones
+// ticked below. Called with clip=null it is just the bulk form.
 function referencePopup(clip, index, total) {
   return new Promise(resolve => {
     const clips = S.batch.clips || [];
-    const others = clips.filter(c => c.name !== clip.name);
+    const others = clip ? clips.filter(c => c.name !== clip.name) : [];
     const waiting = clips.filter(c => c.needs_reference).map(c => c.name);
     // every picture already saved in this batch, so one upload can serve many clips
     const pool = [...new Set([...(S.batch.references || []), ...clips.map(c => c.ref)]
       .filter(r => r && r.kind === "file" && r.file).map(r => r.file))];
+    // start on this clip alone in the queue, or on whatever is waiting when there is no clip
+    const chosen = new Set(clip ? [clip.name] : (waiting.length ? waiting : []));
     let m;
     m = openModal({
-      title: `Reference picture for ${clip.name}`,
-      sub: clip.reference_note ? `The skill asked for: ${clip.reference_note}` : "This clip was marked as needing a reference picture.",
-      body: `<div class="queue-count">Clip ${index} of ${total}</div>
-        <p class="prompt" style="-webkit-line-clamp:4;margin:10px 0 14px"><b>Image</b> ${esc(clip.image || "no image prompt")}</p>
+      title: clip ? `Reference picture for ${clip.name}` : "One picture, the clips you choose",
+      sub: clip
+        ? (clip.reference_note ? `The skill asked for: ${clip.reference_note}`
+                               : "This clip was marked as needing a reference picture.")
+        : "Uploaded once and pointed at every clip you tick — it does not go on the whole batch.",
+      body: `${clip ? `<div class="queue-count">Clip ${index} of ${total}</div>
+        <p class="prompt" style="-webkit-line-clamp:4;margin:10px 0 14px"><b>Image</b> ${esc(clip.image || "no image prompt")}</p>` : ""}
         ${pool.length ? `<div class="ref-pool">
           <div class="label">Pictures already in this batch</div>
           <div class="ref-strip">${pool.map(f => `<button class="ref-pick" data-file="${esc(f)}" title="${esc(f)}">
             <img src="${withToken(`/api/batches/${enc(S.batch.name)}/ref/${enc(f)}`)}" alt=""></button>`).join("")}</div>
         </div>` : ""}
         <div class="drop" id="refDrop"><b>Drop a picture here</b>or click to choose one (.png, .jpg, .webp)</div>
-        ${waiting.length > 1 ? `<label class="check"><input type="checkbox" id="refAll" checked>
-          <span>Use it for all ${plural(waiting.length, "clip")} waiting for a picture</span></label>` : ""}
+        <div class="picker" id="refPicker"></div>
         ${others.length ? `<div class="hint">Or reuse a frame from this batch once it exists:
           <span id="refFrames"></span></div>` : ""}`,
-      actions: [
-        { label: "Skip this clip", onClick: () => { m.close(); resolve("skip"); } },
-        { label: "Stop", kind: "danger", onClick: () => { m.close(); resolve("stop"); } },
-      ],
+      actions: clip
+        ? [{ label: "Skip this clip", onClick: () => { m.close(); resolve("skip"); } },
+           { label: "Stop", kind: "danger", onClick: () => { m.close(); resolve("stop"); } }]
+        : [{ label: "Close", onClick: () => { m.close(); resolve("stop"); } }],
       onDismiss: () => resolve("stop"),
     });
 
-    const drop = $("#refDrop", m.el);
-    const targets = () => {
-      const all = $("#refAll", m.el);
-      return all && all.checked ? waiting : [clip.name];
+    // the clip picker: ticked boxes are exactly who gets this picture
+    const picker = $("#refPicker", m.el);
+    picker.innerHTML = `<div class="picker-head">
+        <span class="label" id="pickCount"></span>
+        <span class="picker-quick">${waiting.length ? '<button data-set="waiting">All waiting</button>' : ""}
+          <button data-set="all">Every clip</button><button data-set="none">None</button></span>
+      </div>
+      <div class="picks">${clips.map(c => `<label class="pick">
+        <input type="checkbox" data-name="${esc(c.name)}">
+        <span>${c.index + 1}</span>${c.needs_reference ? '<span class="ask">waiting</span>' : ""}</label>`).join("")}</div>`;
+    // the boxes are built once and only their state is touched, so ticking never
+    // pulls the row you are clicking out from under you
+    const sync = () => {
+      for (const box of picker.querySelectorAll("input[data-name]")) {
+        box.checked = chosen.has(box.dataset.name);
+        box.parentElement.classList.toggle("on", box.checked);
+      }
+      $("#pickCount", picker).textContent = `Give it to ${chosen.size ? plural(chosen.size, "clip") : "— nothing ticked yet"}`;
     };
+    sync();
+    picker.onclick = e => {
+      const quick = e.target.closest("[data-set]");
+      const box = e.target.closest("input[data-name]");
+      if (quick) {
+        chosen.clear();
+        if (quick.dataset.set === "waiting") waiting.forEach(n => chosen.add(n));
+        else if (quick.dataset.set === "all") clips.forEach(c => chosen.add(c.name));
+      } else if (box) {
+        if (box.checked) chosen.add(box.dataset.name); else chosen.delete(box.dataset.name);
+      } else return;
+      sync();
+    };
+
+    const drop = $("#refDrop", m.el);
+    const targets = () => clips.filter(c => chosen.has(c.name)).map(c => c.name);
     const apply = async payload => {
       const names = targets();
+      if (!names.length) { toast("Tick at least one clip first.", "error"); return; }
       try {
         await attach(S.batch.name, { kind: "reference", clips: names, ...payload });
         toast(names.length > 1 ? `Reference added to ${plural(names.length, "clip")}`
-                               : `${clip.name}: reference added`, "success");
+                               : `${names[0]}: reference added`, "success");
         m.close();
-        resolve(names.length > 1 ? "all" : "done");
+        // the queue can stop asking only once nothing is left waiting
+        resolve(waiting.every(n => names.includes(n)) ? "all" : "done");
       } catch (err) { toast(err.message, "error"); }
     };
     const use = async file => {
@@ -2137,6 +2248,97 @@ function openUpdate() {
 }
 
 // ---------------------------------------------------------------- settings
+// ---------------------------------------------------------------- the batch, back out again
+async function openMasterPrompt(name) {
+  let d;
+  try { d = await api(`/api/batches/${enc(name)}/master`); }
+  catch (e) { toast(e.message, "error"); return; }
+  let m;
+  m = openModal({
+    title: `${d.name} as a master prompt`,
+    sub: "The same block the skill writes. Paste it back into New batch to rebuild this, or send it to someone else.",
+    wide: true,
+    body: `<textarea class="copy-box" id="masterText" spellcheck="false" readonly>${esc(d.text)}</textarea>
+      ${(d.notes || []).map(n => `<p class="modal-note">${esc(n)}</p>`).join("")}`,
+    actions: [
+      { label: "Close", onClick: () => m.close() },
+      { label: "Copy", kind: "primary", onClick: async btn => {
+        const box = $("#masterText", m.el);
+        let done = false;
+        try { await navigator.clipboard.writeText(box.value); done = true; } catch { /* fall back below */ }
+        if (!done) { box.removeAttribute("readonly"); box.select(); done = document.execCommand && document.execCommand("copy"); box.setAttribute("readonly", ""); }
+        if (done) { btn.textContent = "Copied"; toast("Master prompt copied", "success"); }
+        else { box.select(); toast("Couldn't reach the clipboard — it's selected, so press Ctrl+C.", "error"); }
+      } },
+    ],
+  });
+  const box = $("#masterText", m.el);
+  box.onclick = () => box.select();
+}
+
+// ---------------------------------------------------------------- disk space
+const mb = n => n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB`
+  : n >= 1048576 ? `${Math.round(n / 1048576)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+
+async function openStorage() {
+  let data;
+  try { data = await api("/api/storage"); }
+  catch (e) { toast(e.message, "error"); return; }
+  const chosen = new Set();
+  let m;
+  const body = () => {
+    const rows = data.batches;
+    return `<div class="store-total"><b>${mb(data.total)}</b>
+        <span class="dim">in ${esc(data.folder)} · ${plural(rows.length, "batch")}${
+          data.total !== data.live ? ` · ${mb(data.total - data.live)} of it archived` : ""}</span></div>
+      <p class="hint" style="margin-top:12px">Archiving moves a whole batch folder into <code>_archive</code>:
+        it leaves the list and stops loading, but every frame and video stays exactly where it is and Restore
+        brings it back. Nothing here deletes anything — that is still the Delete button on the batch itself.</p>
+      <div class="store-list">${rows.length ? rows.map(r => `<label class="store-row${r.archived ? " archived" : ""}">
+          <input type="checkbox" data-name="${esc(r.name)}" data-archived="${r.archived ? 1 : 0}"${
+            chosen.has(r.name) ? " checked" : ""}${r.running ? " disabled" : ""}>
+          <span class="who"><b>${esc(r.name)}</b><span>${plural(r.clips, "clip")} · ${
+            plural(r.videos, "video")}${r.created ? ` · ${esc(fmtDate(r.created))}` : ""}${
+            r.running ? " · running" : ""}</span></span>
+          <span class="size">${mb(r.bytes)}</span></label>`).join("")
+        : '<div class="store-row"><span></span><span class="who"><b>No batches yet</b></span><span></span></div>'}</div>`;
+  };
+  const move = async restore => {
+    const names = [...chosen].filter(n => {
+      const row = data.batches.find(r => r.name === n);
+      return row && row.archived === restore;
+    });
+    if (!names.length) { toast(restore ? "Tick an archived batch to restore." : "Tick a batch to archive.", "error"); return; }
+    try {
+      const r = await api("/api/storage/archive", { method: "POST", body: { names, restore } });
+      data = r.storage;
+      chosen.clear();
+      setHTML($("#storeBody", m.el), body());
+      (r.failed || []).forEach(f => toast(`${f.name}: ${f.why}`, "error"));
+      if (r.moved.length) toast(`${plural(r.moved.length, "batch")} ${restore ? "restored" : "archived"}`, "success");
+      refreshBatches();
+      if (S.view === "batch" && r.moved.includes(S.batchName) && !restore) location.hash = "#/new";
+    } catch (e) { toast(e.message, "error"); }
+  };
+  m = openModal({
+    title: "Storage",
+    sub: "Frames and videos add up. This is what each batch is holding.",
+    wide: true,
+    body: `<div id="storeBody"></div>`,
+    actions: [
+      { label: "Close", onClick: () => m.close() },
+      { label: "Restore", onClick: () => move(true) },
+      { label: "Archive", kind: "primary", onClick: () => move(false) },
+    ],
+  });
+  setHTML($("#storeBody", m.el), body());
+  $("#storeBody", m.el).addEventListener("click", e => {
+    const box = e.target.closest("input[data-name]");
+    if (!box) return;
+    if (box.checked) chosen.add(box.dataset.name); else chosen.delete(box.dataset.name);
+  });
+}
+
 function openSettings(reason) {
   const c = S.config || { has_key: false, key_hint: "", output_dir: "", config_path: "", frame_credits: null };
   const placeholder = c.has_key ? `Saved · ends in ${c.key_hint || "••••"}` : "Paste your kie.ai API key";
@@ -2154,16 +2356,26 @@ function openSettings(reason) {
       <label class="field"><span class="label">Credits per frame</span>
         <input class="input" id="setCredits" inputmode="numeric" value="${c.frame_credits || ""}" placeholder="12">
         <div class="hint">kie.ai charges 12 credits for each Nano Banana 2 frame. Change it here if their price moves, or leave the box empty to go back to 12. Videos are 18 credits per second in Pro, so 90 for a 5-second clip.</div></label>
+      <div class="field"><span class="label">When the app starts</span>
+        <div class="setting-row" style="padding-top:0"><span>Collect anything still rendering</span>
+          <label class="switch"><input type="checkbox" id="setCollect"${c.auto_collect !== false ? " checked" : ""}><span></span></label></div>
+        <div class="hint">Clips you already paid for keep rendering at kie.ai after the app closes. With this
+          on, the app asks about them at the next launch and downloads what is ready. It only reads status, so
+          it can never cost credits.</div></div>
       <div class="field"><span class="label">Updates</span>
         <div class="setting-row" style="padding-top:0"><span>Check automatically</span>
           <label class="switch"><input type="checkbox" id="setAuto"${c.auto_update_check ? " checked" : ""}><span></span></label></div>
         <div class="hint" id="setUpdateHint">${esc(updateStatusLine())}</div>
-        <button class="btn btn-sm" id="setCheck" type="button" style="margin-top:9px">Check now</button></div>`,
+        <button class="btn btn-sm" id="setCheck" type="button" style="margin-top:9px">Check now</button></div>
+      <div class="field"><span class="label">Storage</span>
+        <div class="hint">See what each batch is holding, and move old ones out of the way without deleting them.</div>
+        <button class="btn btn-sm" id="setStore" type="button" style="margin-top:9px">${ICON.folder} Storage…</button></div>`,
     actions: [
       { label: "Cancel", onClick: () => m.close() },
       { label: "Save", kind: "primary", onClick: async btn => {
         const body = { output_dir: $("#setOut", m.el).value.trim(), frame_credits: $("#setCredits", m.el).value.trim(),
-                       auto_update_check: $("#setAuto", m.el).checked };
+                       auto_update_check: $("#setAuto", m.el).checked,
+                       auto_collect: $("#setCollect", m.el).checked };
         const key = $("#setKey", m.el).value.trim();
         if (key) body.api_key = key;
         btn.disabled = true;
@@ -2191,6 +2403,8 @@ function openSettings(reason) {
     } catch (err) { toast(err.message, "error"); }
     finally { btn.disabled = false; btn.textContent = "Check now"; }
   };
+
+  $("#setStore", m.el).onclick = () => { m.close(); openStorage(); };
 
   const keyInput = $("#setKey", m.el);
   $("#setShow", m.el).onclick = e => {
@@ -2278,6 +2492,7 @@ function wire() {
   };
   $("#bDeleteBtn").onclick = () => { if (S.batch) confirmDelete(S.batch); };
   $("#bTryBtn").onclick = e => { if (e.currentTarget.dataset.clip) startStage("frames", [e.currentTarget.dataset.clip]); };
+  $("#bCopyBtn").onclick = () => { if (S.batch) openMasterPrompt(S.batch.name); };
   $("#bFolderBtn").onclick = () => {
     if (!S.batch) return;
     api(`/api/batches/${enc(S.batch.name)}/open`, { method: "POST", body: { target: "folder" } })

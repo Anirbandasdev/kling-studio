@@ -32,6 +32,7 @@ class FakeKie:
         self.uploads, self.images, self.videos, self.checks = [], [], [], []
         self.results = {}          # prompt -> list of check_task results, last one repeats
         self.submit_errors = {}    # prompt -> exception raised once
+        self.hold = False          # True: everything stays "rendering", like a real slow job
 
     def upload_image(self, path, key, batch):
         self.uploads.append(path.name)
@@ -53,6 +54,8 @@ class FakeKie:
 
     def check_task(self, task_id, key, suffixes=pl.VIDEO_SUFFIXES):
         self.checks.append(task_id)
+        if self.hold:
+            return "rendering", None, {"state": "rendering"}
         if task_id.startswith("img"):
             prompt = self.images[int(task_id[3:]) - 1]["prompt"]
             default = ("done", f"https://cdn.kie/{task_id}.png")

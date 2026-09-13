@@ -80,6 +80,9 @@ class Config:
         self.frame_credits = DEFAULT_FRAME_CREDITS if not saved else int(saved)
         self.update_source = str(data.get("update_source") or updater.DEFAULT_SOURCE)
         self.auto_update_check = bool(data.get("auto_update_check", True))
+        # clips left rendering when the app closed are asked about again at the next
+        # launch; that only reads status, so it can never cost anything
+        self.auto_collect = bool(data.get("auto_collect", True))
         self.tutorial_done = bool(data.get("tutorial_done"))  # the guided tour only greets a new user once
 
     def save(self):
@@ -87,7 +90,8 @@ class Config:
                                   "frame_credits": self.frame_credits,
                                   "tutorial_done": self.tutorial_done,
                                   "update_source": self.update_source,
-                                  "auto_update_check": self.auto_update_check})
+                                  "auto_update_check": self.auto_update_check,
+                                  "auto_collect": self.auto_collect})
 
     def public(self):
         """what the page may see: never the key itself"""
@@ -95,7 +99,8 @@ class Config:
         return {"has_key": bool(key), "key_hint": key[-4:] if len(key) >= 8 else "",
                 "output_dir": str(self.output_dir), "config_path": str(self.path),
                 "frame_credits": self.frame_credits, "tutorial_done": self.tutorial_done,
-                "update_source": self.update_source, "auto_update_check": self.auto_update_check}
+                "update_source": self.update_source, "auto_update_check": self.auto_update_check,
+                "auto_collect": self.auto_collect}
 
 
 # ------------------------------------------------------------------ OS helpers
@@ -200,6 +205,20 @@ class ApiError(Exception):
         super().__init__(message)
         self.status = status
         self.message = message
+
+
+ARCHIVE_DIR = "_archive"      # batch folders moved out of the way; listings skip names starting with _
+
+
+def folder_bytes(path: Path):
+    total = 0
+    for p in path.rglob("*"):
+        try:
+            if p.is_file():
+                total += p.stat().st_size
+        except OSError:
+            pass              # a file that vanished mid-walk just doesn't count
+    return total
 
 
 def save_upload(folder: Path, filename, data_b64, stem=None):
@@ -350,8 +369,23 @@ class Core:
                 if not (root / "job.json").exists():
                     raise ApiError(404, f"There's no batch named “{name}”.")
                 b = pl.Batch(root)
+                thread = self.anchors.get(name)
+                if b.anchor().get("status") == "working" and not (thread and thread.is_alive()):
+                    # a copy of the app stopped while this was being drawn; without this
+                    # the dialog would spin forever waiting for a thread that is gone
+                    b.set_anchor(status="failed", error="The app closed while this was being "
+                                                        "drawn, so it never arrived. Draw it again.")
                 self.batches[name] = b
             return b
+
+    def _drawing(self, name, b):
+        """is a reference being drawn right now?
+
+        The thread stays alive for a moment after the picture lands, so the status is
+        what decides; the thread only rules out a draw that died without clearing it.
+        """
+        thread = self.anchors.get(name)
+        return b.anchor().get("status") == "working" and bool(thread and thread.is_alive())
 
     def delete_batch(self, name):
         """Remove a batch and everything in its folder. Refuses while it is running."""
@@ -382,7 +416,7 @@ class Core:
         with self.lock:
             if name in self.runners:
                 raise ApiError(409, "Wait for this batch to finish before changing the anchor.")
-            if name in self.anchors and self.anchors[name].is_alive():
+            if self._drawing(name, b):
                 raise ApiError(409, "The anchor is still being drawn.")
         action = str(body.get("action") or "prompt")
 
@@ -437,6 +471,7 @@ class Core:
         try:
             self.log(b, "Anchor: sending to kie.ai…")
             task = pl.submit_image(prompt, b.job.get("image_settings", {}), [], self.cfg.api_key)
+            b.record_spend("reference", self.cfg.frame_credits)   # charged now, not when it arrives
             deadline = time.time() + pl.POLL_TIMEOUT
             url = None
             while time.time() < deadline:
@@ -538,7 +573,7 @@ class Core:
         with self.lock:
             runner = self.runners.get(b.name)
             log = list(self._log_buffer(b))[-200:]
-            stop_reason = self.stop_reasons.get(b.name)
+            stop = self.stop_reasons.get(b.name) or {}
         clips = []
         for i, c in enumerate(b.clips()):
             n = c["name"]
@@ -548,10 +583,13 @@ class Core:
             frame_ready = b.frame_ready(n)
             video_ready = b.video_ready(n)
             need = b.reference_urls_needed(n)
+            plan = b.reference_plan(n)
             clips.append({
                 "index": i, "name": n, "image": c.get("image", ""), "motion": c.get("motion", ""),
                 "ref": c.get("ref"), "needs_reference": bool(need and need[0] == "ask"),
                 "reference_note": (need[1] if need and need[0] == "ask" else ""),
+                "references_planned": len(plan),
+                "reference_labels": [label for _p, label, _w in plan],
                 "frame": {**frame, "ready": frame_ready,
                           "version": int(frame_file.stat().st_mtime) if frame_ready else None},
                 "video": {**video, "ready": video_ready,
@@ -565,9 +603,12 @@ class Core:
             "anchor": b.anchor(),
             "anchor_frame": b.anchor_frame(),
             "clips": clips, "counts": b.counts(), "plan": b.plan(),
+            "reference_limit": pl.MAX_REFERENCES,
+            "spend": b.spend(),
             "running": runner is not None, "stage": runner.stage if runner else None,
             "stopping": bool(runner and runner.cancelled),
-            "stop_reason": None if runner else stop_reason,
+            "stop_reason": None if runner else (stop.get("text") or None),
+            "stop_kind": None if runner else (stop.get("kind") or None),
             "folder": str(b.root), "log": log,
         }
 
@@ -624,7 +665,7 @@ class Core:
         with self.lock:
             if name in self.runners:
                 raise ApiError(409, "This batch is already working.")
-            if name in self.anchors and self.anchors[name].is_alive():
+            if self._drawing(name, b):
                 raise ApiError(409, "The anchor is still being drawn. Wait for it, then run.")
         plan = b.plan(redo_frames=redo if stage == "frames" else (),
                       redo_videos=redo if stage == "videos" else ())
@@ -647,20 +688,28 @@ class Core:
                 self.log(b, data["text"], data.get("level", "info"))
             elif kind == "finished":
                 c = b.counts()
+                reason = None
                 if data.get("error"):
                     self.log(b, f"Stopped early. {c['frames']} frames, {c['videos']} videos.", "error")
+                    reason = {"kind": "error", "text": data["error"]}
                 elif data["cancelled"]:
+                    # anything already sent was paid for: say so, and say that collecting is free
+                    left = len(b.plan()[f"{stage}_check"])
+                    tail = (f" {plural(left, stage[:-1])} kie.ai is still working on — collecting "
+                            "them costs nothing." if left else "")
+                    reason = {"kind": "stopped", "text": f"You stopped this run.{tail}"}
                     self.log(b, "Stopped. Anything already sent keeps running on kie.ai; check again "
                                 "later to collect it (no extra credits).", "warn")
                 else:
                     self.log(b, f"Finished {stage}: {c['frames']} frames, {c['videos']} videos, "
                                 f"{c['failed']} failed.")
                 with self.lock:
-                    self.stop_reasons[b.name] = data.get("error")
+                    self.stop_reasons[b.name] = reason
                     if self.runners.get(b.name) is runner:
                         del self.runners[b.name]
 
-        runner = pl.Runner(b, self.cfg.api_key, stage, make, check, emit)
+        runner = pl.Runner(b, self.cfg.api_key, stage, make, check, emit,
+                           frame_credits=self.cfg.frame_credits)
         with self.lock:
             if b.name in self.runners:
                 raise ApiError(409, "This batch is already working.")
@@ -675,6 +724,103 @@ class Core:
             runner.cancel()
             self.log(runner.batch, "Stopping after the current step…", "warn")
         return self.detail(self.get_batch(name))
+
+    def resume_checks(self, limit=6):
+        """Collect work that was already paid for.
+
+        Closing the app (or stopping a run) leaves clips marked "sent": kie.ai keeps
+        rendering them and the files are still waiting. Asking for their status and
+        downloading them costs nothing, so it is done on its own at the next launch.
+        """
+        if not self.cfg.api_key or not self.cfg.auto_collect:
+            return []
+        started = []
+        for s in self.summaries():
+            if len(started) >= limit:
+                break
+            if s["running"]:
+                continue
+            try:
+                b = self.get_batch(s["name"])
+            except ApiError:
+                continue
+            plan = b.plan()
+            stage = "frames" if plan["frames_check"] else "videos" if plan["videos_check"] else None
+            if not stage:
+                continue
+            waiting = plan[f"{stage}_check"]
+            try:
+                self.start(b, stage, [], waiting)
+            except ApiError:
+                continue
+            self.log(b, f"Picking up {plural(len(waiting), stage[:-1])} kie.ai was already working on "
+                        "when the app last closed. Nothing new is sent, so this is free.")
+            started.append(s["name"])
+        return started
+
+    # ---- disk space
+
+    def storage(self):
+        """How much room every batch takes, live and archived, biggest first."""
+        out = self.cfg.output_dir
+        rows = []
+        for base, archived in ((out, False), (out / ARCHIVE_DIR, True)):
+            try:
+                folders = sorted(d for d in base.iterdir() if d.is_dir() and (d / "job.json").is_file())
+            except OSError:
+                continue
+            for d in folders:
+                if not archived and d.name.startswith((".", "_")):
+                    continue
+                try:
+                    job = pl.read_json(d / "job.json", {}) or {}
+                except (OSError, ValueError):
+                    job = {}
+                rows.append({"name": d.name, "created": job.get("created", ""),
+                             "clips": len(job.get("clips") or []),
+                             "videos": len(list((d / "videos").glob("*.mp4"))) if (d / "videos").is_dir() else 0,
+                             "bytes": folder_bytes(d), "archived": archived,
+                             "running": d.name in self.active_runs()})
+        rows.sort(key=lambda r: r["bytes"], reverse=True)
+        return {"folder": str(out), "archive_folder": str(out / ARCHIVE_DIR),
+                "total": sum(r["bytes"] for r in rows),
+                "live": sum(r["bytes"] for r in rows if not r["archived"]),
+                "batches": rows}
+
+    def archive(self, names, restore=False):
+        """Move whole batch folders in or out of the _archive folder.
+
+        Nothing is deleted: an archived batch keeps every frame and video, it just
+        stops filling the list. The app never prunes anything on its own.
+        """
+        moved, failed = [], []
+        with self.lock:
+            store = self.cfg.output_dir / ARCHIVE_DIR
+            for raw in names if isinstance(names, list) else []:
+                name = str(raw)
+                src = (store / name) if restore else (self.cfg.output_dir / name)
+                dst = (self.cfg.output_dir / name) if restore else (store / name)
+                if not pl.BATCH_NAME_RE.match(name):
+                    failed.append({"name": name, "why": "That isn't a batch name."})
+                elif name in self.active_runs():
+                    failed.append({"name": name, "why": "It is running. Stop it first."})
+                elif name in self.anchors and self.anchors[name].is_alive():
+                    failed.append({"name": name, "why": "A reference is still being drawn."})
+                elif not (src / "job.json").is_file():
+                    failed.append({"name": name, "why": "It isn't there."})
+                elif dst.exists():
+                    failed.append({"name": name, "why": "Something with that name is already there."})
+                else:
+                    try:
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        pl.replace_path(src, dst)      # same folder tree, so this is a rename
+                    except OSError as e:
+                        failed.append({"name": name, "why": e.strerror or str(e)})
+                        continue
+                    for store_ in (self.batches, self.logs, self.stop_reasons):
+                        store_.pop(name, None)
+                    moved.append(name)
+        return {"moved": moved, "failed": failed, "restored": bool(restore), "storage": self.storage()}
 
     # ---- edits from the page
 
@@ -1015,6 +1161,8 @@ def api_config(h):
             core.update.update(state="idle", version="", notes=[], url="", error="", progress=0)
     if "auto_update_check" in body:
         cfg.auto_update_check = bool(body["auto_update_check"])
+    if "auto_collect" in body:
+        cfg.auto_collect = bool(body["auto_collect"])
     if "tutorial_done" in body:
         cfg.tutorial_done = bool(body["tutorial_done"])
     if "api_key" in body:
@@ -1091,6 +1239,30 @@ def api_batch_references(h, name):
 def api_delete_batch(h, name):
     h.read_body()
     return h.core.delete_batch(name)
+
+
+@route("GET", f"/api/batches/{NAME}/master")
+def api_master_prompt(h, name):
+    b = h.core.get_batch(name)
+    notes = []
+    if b.anchor_frame():
+        notes.append(f"Frame {b.anchor_frame()} is this batch's anchor frame. There is no line for "
+                     "that in a master prompt, so set it again after pasting.")
+    if any(r.get("file") for r in (b.job.get("references") or [])):
+        notes.append("Pictures you added in the app are written as full paths into this batch's folder, "
+                     "so they only work while that folder is still there.")
+    return {"name": b.name, "text": b.master_prompt(), "notes": notes}
+
+
+@route("GET", "/api/storage")
+def api_storage(h):
+    return h.core.storage()
+
+
+@route("POST", "/api/storage/archive")
+def api_storage_archive(h):
+    body = h.read_body()
+    return h.core.archive(body.get("names") or [], restore=bool(body.get("restore")))
 
 
 @route("POST", f"/api/batches/{NAME}/open")
@@ -1209,6 +1381,15 @@ def running_instance_url():
     return None
 
 
+def collect_watch(core, first_delay=4):
+    """Once, shortly after launch: pick up anything kie.ai already finished."""
+    time.sleep(first_delay)
+    try:
+        core.resume_checks()
+    except Exception:
+        write_error_log(f"resume_checks\n{traceback.format_exc()}")
+
+
 def update_watch(core, first_delay=3, every=6 * 3600):
     """Ask the manifest at startup, then every few hours. Installs nothing."""
     time.sleep(first_delay)
@@ -1275,6 +1456,7 @@ def main(argv=None):
         proc = open_window(url)
         threading.Thread(target=monitor, args=(server, proc), daemon=True).start()
         threading.Thread(target=update_watch, args=(server.core,), daemon=True).start()
+        threading.Thread(target=collect_watch, args=(server.core,), daemon=True).start()
     try:
         server.serve_forever(poll_interval=0.5)
     finally:

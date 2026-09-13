@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app  # noqa: E402
+import paste  # noqa: E402
 import pipeline as pl  # noqa: E402
 from test_pipeline import FakeKie, png_bytes  # noqa: E402
 
@@ -293,6 +294,15 @@ class ServerTests(unittest.TestCase):
 
     # ---- the anchor
 
+    def wait_idle(self, name, seconds=15):
+        end = time.time() + seconds
+        while time.time() < end:
+            _, d = self.call("GET", f"/api/batches/{name}")
+            if not d["running"]:
+                return d
+            time.sleep(0.05)
+        self.fail(f"{name} never stopped working")
+
     def wait_anchor(self, name, want="ready"):
         end = time.time() + 15
         while time.time() < end:
@@ -324,6 +334,26 @@ class ServerTests(unittest.TestCase):
         self.kie.images.clear()
         self.run_stage("c170", "frames", redo=["c170_clip01", "c170_clip02"])
         self.assertEqual([len(i["refs"]) for i in self.kie.images], [1, 1])
+
+    def test_a_finished_draw_does_not_hold_the_batch_up(self):
+        """the worker thread outlives the picture by a moment; that must not block a run"""
+        self.make("c171")
+        self.call("POST", "/api/batches/c171/anchor", {"action": "generate", "prompt": "the avatar"})
+        d = self.wait_anchor("c171")
+        self.assertEqual(d["anchor"]["status"], "ready")
+        self.assertEqual(self.call("POST", "/api/batches/c171/run", {"stage": "frames"})[0], 200)
+        self.wait_idle("c171")
+
+    def test_a_draw_that_never_finished_does_not_spin_forever(self):
+        self.make("c172")
+        b = self.server.core.get_batch("c172")
+        b.set_anchor(prompt="the avatar", status="working")     # as if the app was closed mid-draw
+        self.server.core.batches.pop("c172")                    # and then opened again
+        _, d = self.call("GET", "/api/batches/c172")
+        self.assertEqual(d["anchor"]["status"], "failed")
+        self.assertIn("Draw it again", d["anchor"]["error"])
+        self.assertEqual(self.call("POST", "/api/batches/c172/run", {"stage": "frames"})[0], 200)
+        self.wait_idle("c172")
 
     def test_the_anchor_rides_along_with_a_clip_that_has_its_own_reference(self):
         clips = [{"image": "her holding the bottle", "motion": "she turns it",
@@ -460,6 +490,232 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/ui/index.html")[0], 404)     # not on the list
         self.assertEqual(self.call("GET", "/api/ui/..%2Fapp.py")[0], 404)
         self.assertEqual(self.call("GET", "/api/ui/logo.png", token=False)[0], 403)
+
+    # ---- what a stop leaves behind
+
+    def test_stopping_says_so_and_says_the_rest_is_free_to_collect(self):
+        clips = [{"image": f"shot {i}", "motion": "moves"} for i in range(1, 4)]
+        self.make("c180", clips)
+        self.kie.hold = True                        # nothing ever finishes on its own
+        try:
+            self.assertEqual(self.call("POST", "/api/batches/c180/run", {"stage": "frames"})[0], 200)
+            end = time.time() + 10
+            while time.time() < end and not self.kie.images:
+                time.sleep(0.05)
+            self.call("POST", "/api/batches/c180/stop")
+            end = time.time() + 10
+            while time.time() < end:
+                _, d = self.call("GET", "/api/batches/c180")
+                if not d["running"]:
+                    break
+                time.sleep(0.05)
+        finally:
+            self.kie.hold = False
+        self.assertFalse(d["running"])
+        self.assertEqual(d["stop_kind"], "stopped")
+        self.assertIn("You stopped this run.", d["stop_reason"])
+        self.assertIn("collecting", d["stop_reason"])
+        self.assertTrue(d["plan"]["frames_check"], "sent frames should be waiting to be collected")
+
+        # and collecting them afterwards costs nothing more
+        before = len(self.kie.images)
+        d = self.run_stage("c180", "frames")
+        self.assertEqual(len(self.kie.images), before)
+        self.assertEqual(d["counts"]["frames"], len(self.kie.images))
+
+    def test_a_run_that_finishes_leaves_no_stop_line(self):
+        self.make("c181")
+        d = self.run_stage("c181", "frames")
+        self.assertEqual((d["stop_reason"], d["stop_kind"]), (None, None))
+
+    # ---- what was already paid for
+
+    def test_clips_left_rendering_are_collected_at_the_next_launch(self):
+        self.make("c182")
+        self.kie.hold = True
+        try:
+            self.call("POST", "/api/batches/c182/run", {"stage": "frames"})
+            end = time.time() + 10
+            while time.time() < end and len(self.kie.images) < 2:
+                time.sleep(0.05)
+            self.call("POST", "/api/batches/c182/stop")
+            end = time.time() + 10
+            while time.time() < end and self.server.core.active_runs():
+                time.sleep(0.05)
+        finally:
+            self.kie.hold = False
+        sent = len(self.kie.images)
+        self.assertEqual(self.server.core.resume_checks(), ["c182"])
+        end = time.time() + 10
+        while time.time() < end and self.server.core.active_runs():
+            time.sleep(0.05)
+        _, d = self.call("GET", "/api/batches/c182")
+        self.assertEqual(d["counts"]["frames"], 2)
+        self.assertEqual(len(self.kie.images), sent, "collecting must not send anything new")
+
+    def test_collecting_at_launch_can_be_switched_off(self):
+        self.make("c183")
+        self.server.core.cfg.auto_collect = False
+        self.assertEqual(self.server.core.resume_checks(), [])
+        self.server.core.cfg.auto_collect = True
+        self.assertEqual(self.server.core.resume_checks(), [])      # nothing was ever sent
+        _, cfg = self.call("POST", "/api/config", {"auto_collect": False})
+        self.assertFalse(cfg["config"]["auto_collect"])
+        self.assertFalse(self.server.core.cfg.auto_collect)
+
+    # ---- what a batch has cost
+
+    def test_a_batch_adds_up_what_it_has_sent(self):
+        self.make("c184")
+        _, d = self.call("GET", "/api/batches/c184")
+        self.assertEqual(d["spend"], {"credits": 0, "calls": 0, "frames": 0, "videos": 0,
+                                      "references": 0, "unpriced": 0})
+        d = self.run_stage("c184", "frames")
+        self.assertEqual((d["spend"]["frames"], d["spend"]["credits"]), (2, 24))
+        d = self.run_stage("c184", "videos")
+        self.assertEqual((d["spend"]["frames"], d["spend"]["videos"]), (2, 2))
+        self.assertEqual(d["spend"]["credits"], 24 + 2 * 90)        # 12 a frame, 90 a 5s Pro video
+        self.assertEqual(d["spend"]["unpriced"], 0)
+
+    def test_a_drawn_reference_is_counted_too(self):
+        self.make("c185")
+        self.call("POST", "/api/batches/c185/anchor", {"action": "generate", "prompt": "the woman"})
+        end = time.time() + 10
+        while time.time() < end:
+            _, d = self.call("GET", "/api/batches/c185")
+            if d["anchor"].get("status") != "working":
+                break
+            time.sleep(0.05)
+        self.assertEqual(d["anchor"]["status"], "ready")
+        self.assertEqual((d["spend"]["references"], d["spend"]["credits"]), (1, 12))
+
+    # ---- kie.ai's picture limit
+
+    def test_the_page_is_told_how_many_pictures_each_frame_carries(self):
+        clips = [{"image": "a", "motion": "a"}, {"image": "b", "motion": "b"}]
+        _, d = self.make("c186", clips)
+        self.assertEqual(d["reference_limit"], pl.MAX_REFERENCES)
+        self.assertEqual([c["references_planned"] for c in d["clips"]], [0, 0])
+
+        _, d = self.call("POST", "/api/batches/c186/attach",
+                         {"kind": "reference", "filename": "style.png",
+                          "data": base64.b64encode(png_bytes()).decode()})
+        _, d = self.call("POST", "/api/batches/c186/references", {"anchor": 1})
+        self.assertEqual([c["references_planned"] for c in d["clips"]], [1, 2])
+        self.assertEqual(d["clips"][1]["reference_labels"], ["frame 1", "a style reference"])
+
+    def test_past_the_limit_the_run_says_what_it_dropped(self):
+        with mock.patch.object(pl, "MAX_REFERENCES", 1):
+            clips = [{"image": "a", "motion": "a"}]
+            self.make("c187", clips)
+            for i in range(2):
+                self.call("POST", "/api/batches/c187/attach",
+                          {"kind": "reference", "filename": f"style{i}.png",
+                           "data": base64.b64encode(png_bytes()).decode()})
+            _, d = self.call("GET", "/api/batches/c187")
+            self.assertEqual(d["clips"][0]["references_planned"], 2)
+            d = self.run_stage("c187", "frames")
+            self.assertEqual(len(self.kie.images[-1]["refs"]), 1)
+            self.assertEqual(d["clips"][0]["frame"]["references_used"], 1)
+            self.assertEqual(d["clips"][0]["frame"]["references_dropped"], 1)
+            self.assertTrue(any("will not be sent" in l["text"] for l in d["log"]))
+
+    def test_the_same_picture_is_never_sent_twice_for_one_frame(self):
+        clips = [{"image": "a", "motion": "a"}]
+        self.make("c188", clips)
+        _, d = self.call("POST", "/api/batches/c188/attach",
+                         {"kind": "reference", "filename": "look.png",
+                          "data": base64.b64encode(png_bytes()).decode()})
+        file = d["references"][0]["file"]
+        # the same file as the batch's picture and as the clip's own
+        _, d = self.call("POST", "/api/batches/c188/attach",
+                         {"kind": "reference", "clips": ["c188_clip01"], "file": file})
+        self.assertEqual(d["clips"][0]["references_planned"], 1)
+        self.run_stage("c188", "frames")
+        self.assertEqual(len(self.kie.images[-1]["refs"]), 1)
+
+    # ---- the batch, back out again
+
+    def test_a_batch_can_be_copied_back_out_as_a_master_prompt(self):
+        clips = [{"image": "a diya on a table", "motion": "the flame flickers"},
+                 {"image": "a cup of coffee", "motion": "steam rises", "ref": {"kind": "frame", "index": 1}}]
+        self.make("c189", clips)
+        status, d = self.call("GET", "/api/batches/c189/master")
+        self.assertEqual(status, 200, d)
+        again = paste.parse_master(d["text"])
+        self.assertEqual(again["name"], "c189")
+        self.assertEqual([c["image"] for c in again["clips"]], [c["image"] for c in clips])
+        self.assertEqual([c["motion"] for c in again["clips"]], [c["motion"] for c in clips])
+        self.assertEqual(again["clips"][1]["ref"], {"kind": "frame", "index": 1})
+        self.assertEqual(again["settings"].get("duration"), "5")
+        self.assertEqual(again["warnings"], [])
+        self.assertEqual(again["ignored"], [])
+
+    def test_the_copied_prompt_says_what_it_cannot_carry(self):
+        self.make("c190")
+        self.call("POST", "/api/batches/c190/references", {"anchor": 2})
+        _, d = self.call("GET", "/api/batches/c190/master")
+        self.assertTrue(any("anchor frame" in n for n in d["notes"]))
+        self.assertEqual(self.call("GET", "/api/batches/nope/master")[0], 404)
+
+    # ---- storage
+
+    def test_storage_lists_what_each_batch_is_holding(self):
+        self.make("c191")
+        self.run_stage("c191", "frames")
+        status, s = self.call("GET", "/api/storage")
+        self.assertEqual(status, 200, s)
+        self.assertEqual([b["name"] for b in s["batches"]], ["c191"])
+        row = s["batches"][0]
+        self.assertEqual((row["clips"], row["archived"], row["running"]), (2, False, False))
+        self.assertGreater(row["bytes"], 0)
+        self.assertEqual(s["total"], row["bytes"])
+
+    def test_archiving_hides_a_batch_without_losing_a_file(self):
+        self.make("c192")
+        self.run_stage("c192", "frames")
+        frame = self.tmp / "out" / "c192" / "frames" / "c192_clip01.png"
+        self.assertTrue(frame.exists())
+
+        status, r = self.call("POST", "/api/storage/archive", {"names": ["c192"]})
+        self.assertEqual((status, r["moved"], r["failed"]), (200, ["c192"], []))
+        self.assertFalse(frame.exists())
+        self.assertTrue((self.tmp / "out" / "_archive" / "c192" / "frames" / "c192_clip01.png").exists())
+        self.assertEqual(self.call("GET", "/api/batches")[1], [])        # gone from the list
+        self.assertEqual(self.call("GET", "/api/batches/c192")[0], 404)
+        self.assertTrue(r["storage"]["batches"][0]["archived"])
+
+        _, r = self.call("POST", "/api/storage/archive", {"names": ["c192"], "restore": True})
+        self.assertEqual(r["moved"], ["c192"])
+        self.assertTrue(frame.exists())
+        self.assertEqual([b["name"] for b in self.call("GET", "/api/batches")[1]], ["c192"])
+
+    def test_archiving_refuses_the_impossible_instead_of_guessing(self):
+        self.make("c193")
+
+        class Busy:
+            def is_alive(self):
+                return True
+
+        self.server.core.runners["c193"] = Busy()
+        try:
+            _, r = self.call("POST", "/api/storage/archive", {"names": ["c193"]})
+            self.assertEqual(r["moved"], [])
+            self.assertIn("running", r["failed"][0]["why"])
+        finally:
+            self.server.core.runners.pop("c193")
+        _, r = self.call("POST", "/api/storage/archive", {"names": ["..", "nope", "c193/x"]})
+        self.assertEqual(r["moved"], [])
+        self.assertEqual(len(r["failed"]), 3)
+        self.assertTrue((self.tmp / "out" / "c193" / "job.json").exists())
+
+    def test_a_name_cannot_be_taken_twice_by_archiving(self):
+        self.make("c194")
+        self.call("POST", "/api/storage/archive", {"names": ["c194"]})
+        self.make("c194")                                    # the name is free again
+        _, r = self.call("POST", "/api/storage/archive", {"names": ["c194"]})
+        self.assertEqual(r["moved"], [])
+        self.assertIn("already there", r["failed"][0]["why"])
 
     # ---- deleting a batch
 
