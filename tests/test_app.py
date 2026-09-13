@@ -200,6 +200,79 @@ class ServerTests(unittest.TestCase):
         self.run_stage("c152", "frames")
         self.assertEqual(self.kie.images[-1]["refs"], ["https://files.kie/c152/avatar.png"])
 
+    def test_one_upload_can_cover_every_clip_that_needs_it(self):
+        clips = [{"image": f"the avatar, shot {i}", "motion": "she blinks",
+                  "ref": {"kind": "needed", "note": "the avatar"}} for i in range(1, 5)]
+        _, d = self.make("c160", clips)
+        self.assertEqual(len(d["plan"]["blocked"]), 4)
+
+        body = {"kind": "reference", "clips": [c["name"] for c in d["clips"]],
+                "filename": "avatar.png", "data": base64.b64encode(png_bytes()).decode()}
+        _, d = self.call("POST", "/api/batches/c160/attach", body)
+        self.assertEqual(d["plan"]["blocked"], [])
+        self.assertEqual(len(d["plan"]["frames_make"]), 4)
+        files = {c["ref"]["file"] for c in d["clips"]}
+        self.assertEqual(len(files), 1)                                    # stored once
+        self.assertEqual(len(list((self.tmp / "out" / "c160" / "refs").iterdir())), 1)
+
+        self.run_stage("c160", "frames")
+        self.assertEqual([len(i["refs"]) for i in self.kie.images], [1, 1, 1, 1])
+
+    def test_a_picture_already_here_is_reused_without_uploading_again(self):
+        clips = [{"image": "a", "motion": "a", "ref": {"kind": "needed", "note": "x"}},
+                 {"image": "b", "motion": "b", "ref": {"kind": "needed", "note": "x"}}]
+        _, d = self.make("c161", clips)
+        first = {"kind": "reference", "clips": ["c161_clip01"], "filename": "look.png",
+                 "data": base64.b64encode(png_bytes()).decode()}
+        _, d = self.call("POST", "/api/batches/c161/attach", first)
+        saved = d["clips"][0]["ref"]["file"]
+
+        status, d = self.call("POST", "/api/batches/c161/attach",
+                              {"kind": "reference", "clips": ["c161_clip02"], "file": saved})
+        self.assertEqual(status, 200, d)
+        self.assertEqual(d["clips"][1]["ref"]["file"], saved)
+        self.assertEqual(len(list((self.tmp / "out" / "c161" / "refs").iterdir())), 1)
+
+        status, err = self.call("POST", "/api/batches/c161/attach",
+                                {"kind": "reference", "clips": ["c161_clip02"], "file": "nope.png"})
+        self.assertEqual(status, 404, err)
+
+    def test_a_style_reference_goes_on_every_frame(self):
+        self.make("c162")
+        body = {"kind": "reference", "filename": "style.png",
+                "data": base64.b64encode(png_bytes()).decode()}
+        _, d = self.call("POST", "/api/batches/c162/attach", body)          # no clip: whole batch
+        self.assertEqual(len(d["references"]), 1)
+        self.run_stage("c162", "frames")
+        self.assertEqual([len(i["refs"]) for i in self.kie.images], [1, 1])
+
+        _, d = self.call("POST", "/api/batches/c162/references",
+                         {"remove": d["references"][0]["file"]})
+        self.assertEqual(d["references"], [])
+
+    def test_an_anchor_frame_points_every_other_clip_at_it(self):
+        clips = [{"image": f"shot {i}", "motion": "moves"} for i in range(1, 5)]
+        self.make("c163", clips)
+        _, d = self.call("POST", "/api/batches/c163/references", {"anchor": 2})
+        refs = [c["ref"] for c in d["clips"]]
+        self.assertIsNone(refs[1])                                          # the anchor itself
+        self.assertEqual([r["index"] for r in refs if r], [2, 2, 2])
+        self.assertEqual(d["plan"]["frames_make"], [c["name"] for c in d["clips"]])
+
+        self.assertEqual(self.call("POST", "/api/batches/c163/references", {"anchor": 9})[0], 400)
+        _, d = self.call("POST", "/api/batches/c163/references", {"anchor": None})
+        self.assertEqual([c["ref"] for c in d["clips"]], [None, None, None, None])
+
+    def test_an_anchor_leaves_a_clip_that_has_its_own_picture_alone(self):
+        clips = [{"image": "a", "motion": "a"},
+                 {"image": "b", "motion": "b", "ref": {"kind": "needed", "note": "x"}}]
+        _, d = self.make("c164", clips)
+        self.call("POST", "/api/batches/c164/attach",
+                  {"kind": "reference", "clips": ["c164_clip02"], "filename": "own.png",
+                   "data": base64.b64encode(png_bytes()).decode()})
+        _, d = self.call("POST", "/api/batches/c164/references", {"anchor": 1})
+        self.assertEqual(d["clips"][1]["ref"]["kind"], "file")              # its own picture wins
+
     def test_rejects_a_file_that_is_not_a_picture(self):
         self.make()
         status, err = self.call("POST", "/api/batches/c150/attach",

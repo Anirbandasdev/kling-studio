@@ -284,6 +284,30 @@ h2 { margin: 0; font: 650 16.5px/1.3 var(--display); letter-spacing: -.015em; }
 .drop { border: 1px dashed var(--border-strong); border-radius: 16px; padding: 26px; text-align: center; color: var(--text-3); font-size: 13px; cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
 .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--text-2); }
 .drop b { display: block; color: var(--text); font-size: 14.5px; margin-bottom: 5px; }
+.refs-card { margin-bottom: 20px; }
+.refs-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.ref-thumb { position: relative; margin: 0; width: 78px; height: 78px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border-strong); background: var(--panel-2); }
+.ref-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ref-thumb.file { display: grid; place-items: center; padding: 8px; text-align: center; font-size: 10.5px; color: var(--text-3); word-break: break-all; }
+.ref-x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; display: grid; place-items: center; border: 0; border-radius: 7px; background: rgba(8, 9, 12, .78); color: var(--text-2); cursor: pointer; opacity: 0; transition: opacity .15s; }
+.ref-thumb:hover .ref-x, .ref-x:focus-visible { opacity: 1; }
+.ref-x:hover { color: var(--red); }
+.ref-x svg { width: 13px; height: 13px; }
+.ref-add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 78px; height: 78px; border-radius: 12px; border: 1px dashed var(--border-strong); background: transparent; color: var(--text-3); font: 600 10.5px/1.3 var(--font); text-align: center; cursor: pointer; padding: 6px; }
+.ref-add:hover { border-color: var(--accent); color: var(--text-2); background: var(--accent-soft); }
+.ref-add svg { width: 16px; height: 16px; }
+.refs-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.refs-foot b { display: block; font-size: 13px; font-weight: 650; }
+.refs-foot span { font-size: 12.5px; color: var(--text-3); }
+.refs-foot .input { height: 36px; width: auto; min-width: 210px; font-size: 13px; }
+.ref-pool { margin-bottom: 14px; }
+.ref-pool .label { font-size: 12px; color: var(--text-3); margin-bottom: 8px; }
+.ref-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.ref-pick { width: 62px; height: 62px; padding: 0; border-radius: 11px; overflow: hidden; border: 1px solid var(--border-strong); background: var(--panel-2); cursor: pointer; }
+.ref-pick:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ref-pick img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.check { display: flex; align-items: center; gap: 9px; margin-top: 14px; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.check input { width: 16px; height: 16px; accent-color: var(--accent); }
 .ref-preview { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
 .ref-preview img { width: 76px; height: 76px; object-fit: cover; border-radius: 11px; border: 1px solid var(--border-strong); }
 .queue-count { font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
@@ -583,6 +607,8 @@ ref: frame 1"></textarea>
         <div class="progress"><i class="frames" id="bFramesFill"></i><i class="videos" id="bVideosFill"></i></div>
         <div class="bg-note" id="bNote" hidden></div>
       </div>
+
+      <div class="card refs-card" id="bRefs" hidden></div>
 
       <div class="clip-grid" id="batchGrid"></div>
 
@@ -1105,8 +1131,80 @@ function renderBatch() {
   primary.dataset.action = next.action || "";
   primary.className = next.tone ? `btn state ${next.tone}` : "btn btn-lg btn-primary";
 
+  renderRefs();
   renderBatchGrid();
   renderLog();
+}
+
+function anchorOf(b) {
+  const counts = {};
+  for (const c of b.clips) if (c.ref && c.ref.kind === "frame") counts[c.ref.index] = (counts[c.ref.index] || 0) + 1;
+  const best = Object.keys(counts).sort((a, b2) => counts[b2] - counts[a])[0];
+  return best ? { index: +best, clips: counts[best] } : null;
+}
+
+function renderRefs() {
+  const b = S.batch;
+  const host = $("#bRefs");
+  const files = (b.references || []).filter(r => r.file);
+  const paths = (b.references || []).filter(r => r.path);
+  const anchor = anchorOf(b);
+  const waiting = b.clips.filter(c => c.needs_reference).length;
+  host.hidden = false;
+  setHTML(host, `<div class="card-head">
+      <span class="card-title">References</span>
+      <span class="dim" style="font-size:12.5px">Used on every frame in this batch</span>
+    </div>
+    <div class="refs-row">
+      ${files.map(r => `<figure class="ref-thumb"><img src="${withToken(`/api/batches/${enc(b.name)}/ref/${enc(r.file)}`)}" alt="">
+        <button class="ref-x" data-remove="${esc(r.file)}" title="Remove this reference">${ICON.trash}</button></figure>`).join("")}
+      ${paths.map(r => `<figure class="ref-thumb file"><span>${esc(r.path.split(/[\/]/).pop())}</span>
+        <button class="ref-x" data-remove="${esc(r.path)}" title="Remove this reference">${ICON.trash}</button></figure>`).join("")}
+      <button class="ref-add" data-act="add">${ICON.image}<span>Add style reference</span></button>
+    </div>
+    <div class="refs-foot">
+      <div>
+        <b>Anchor frame</b>
+        <span>${anchor ? `Frame ${anchor.index} is drawn first, then used for ${plural(anchor.clips, "other clip")}.`
+          : "Draw one frame first and build every other clip from it, so faces and products match."}</span>
+      </div>
+      <div class="refs-actions">
+        <select class="input" id="anchorPick" ${b.running ? "disabled" : ""}>
+          <option value="">No anchor</option>
+          ${b.clips.map((c, i) => `<option value="${i + 1}"${anchor && anchor.index === i + 1 ? " selected" : ""}>Frame ${i + 1} · ${esc(c.name)}</option>`).join("")}
+        </select>
+      </div>
+    </div>
+    ${waiting ? `<p class="hint">${plural(waiting, "clip")} still waiting for a picture — the big button opens them one at a time, and one picture can cover them all.</p>` : ""}`);
+
+  host.onclick = async e => {
+    const rm = e.target.closest("[data-remove]");
+    const add = e.target.closest('[data-act="add"]');
+    if (rm) {
+      try {
+        S.batch = await api(`/api/batches/${enc(b.name)}/references`, { method: "POST", body: { remove: rm.dataset.remove } });
+        renderBatch();
+        toast("Reference removed", "success");
+      } catch (err) { toast(err.message, "error"); }
+    } else if (add) {
+      const f = await pickPicture();
+      if (!f) return;
+      try {
+        const pic = await readPicture(f);
+        await attach(b.name, { kind: "reference", ...pic });     // no clip: the whole batch
+        toast("Style reference added to every frame", "success");
+      } catch (err) { toast(err.message, "error"); }
+    }
+  };
+  const pick = $("#anchorPick", host);
+  if (pick) pick.onchange = async e => {
+    try {
+      S.batch = await api(`/api/batches/${enc(b.name)}/references`, { method: "POST",
+        body: { anchor: e.target.value ? Number(e.target.value) : null } });
+      renderBatch();
+      toast(e.target.value ? `Frame ${e.target.value} is the anchor` : "Anchor cleared", "success");
+    } catch (err) { toast(err.message, "error"); e.target.value = ""; }
+  };
 }
 
 function nextAction(b) {
@@ -1309,20 +1407,33 @@ async function referenceQueue(names) {
     if (!clip || !clip.needs_reference) continue;
     const answer = await referencePopup(clip, names.indexOf(name) + 1, names.length);
     if (answer === "stop") return false;
+    if (answer === "all") return true;      // one picture covered every waiting clip
   }
   return true;
 }
 
 function referencePopup(clip, index, total) {
   return new Promise(resolve => {
-    const others = (S.batch.clips || []).filter(c => c.name !== clip.name);
+    const clips = S.batch.clips || [];
+    const others = clips.filter(c => c.name !== clip.name);
+    const waiting = clips.filter(c => c.needs_reference).map(c => c.name);
+    // every picture already saved in this batch, so one upload can serve many clips
+    const pool = [...new Set([...(S.batch.references || []), ...clips.map(c => c.ref)]
+      .filter(r => r && r.kind === "file" && r.file).map(r => r.file))];
     let m;
     m = openModal({
       title: `Reference picture for ${clip.name}`,
       sub: clip.reference_note ? `The skill asked for: ${clip.reference_note}` : "This clip was marked as needing a reference picture.",
       body: `<div class="queue-count">Clip ${index} of ${total}</div>
         <p class="prompt" style="-webkit-line-clamp:4;margin:10px 0 14px"><b>Image</b> ${esc(clip.image || "no image prompt")}</p>
+        ${pool.length ? `<div class="ref-pool">
+          <div class="label">Pictures already in this batch</div>
+          <div class="ref-strip">${pool.map(f => `<button class="ref-pick" data-file="${esc(f)}" title="${esc(f)}">
+            <img src="${withToken(`/api/batches/${enc(S.batch.name)}/ref/${enc(f)}`)}" alt=""></button>`).join("")}</div>
+        </div>` : ""}
         <div class="drop" id="refDrop"><b>Drop a picture here</b>or click to choose one (.png, .jpg, .webp)</div>
+        ${waiting.length > 1 ? `<label class="check"><input type="checkbox" id="refAll" checked>
+          <span>Use it for all ${plural(waiting.length, "clip")} waiting for a picture</span></label>` : ""}
         ${others.length ? `<div class="hint">Or reuse a frame from this batch once it exists:
           <span id="refFrames"></span></div>` : ""}`,
       actions: [
@@ -1333,14 +1444,27 @@ function referencePopup(clip, index, total) {
     });
 
     const drop = $("#refDrop", m.el);
-    const use = async file => {
+    const targets = () => {
+      const all = $("#refAll", m.el);
+      return all && all.checked ? waiting : [clip.name];
+    };
+    const apply = async payload => {
+      const names = targets();
       try {
-        const pic = await readPicture(file);
-        await attach(S.batch.name, { kind: "reference", clip: clip.name, ...pic });
-        toast(`${clip.name}: reference added`, "success");
+        await attach(S.batch.name, { kind: "reference", clips: names, ...payload });
+        toast(names.length > 1 ? `Reference added to ${plural(names.length, "clip")}`
+                               : `${clip.name}: reference added`, "success");
         m.close();
-        resolve("done");
+        resolve(names.length > 1 ? "all" : "done");
       } catch (err) { toast(err.message, "error"); }
+    };
+    const use = async file => {
+      try { apply(await readPicture(file)); } catch (err) { toast(err.message, "error"); }
+    };
+    const strip = $(".ref-strip", m.el);
+    if (strip) strip.onclick = e => {
+      const pick = e.target.closest("[data-file]");
+      if (pick) apply({ file: pick.dataset.file });        // already uploaded: just point at it
     };
     drop.onclick = async () => { const f = await pickPicture(); if (f) use(f); };
     drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };

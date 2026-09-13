@@ -48,6 +48,10 @@ STAGES = ("frames", "videos")
 
 # ------------------------------------------------------------------ config
 
+def plural(n, word):
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
 def config_dir():
     override = os.environ.get("KLING_STUDIO_HOME")
     if override:
@@ -368,6 +372,51 @@ class Core:
                 store.pop(name, None)
         return {"deleted": name}
 
+    def batch_references(self, name, body):
+        """Manage the pictures that apply to the whole batch, and the anchor frame."""
+        b = self.get_batch(name)
+        with self.lock:
+            if name in self.runners:
+                raise ApiError(409, "Wait for this batch to finish before changing references.")
+        remove = str(body.get("remove") or "")
+        if remove:
+            refs = b.job.get("references") or []
+            kept = [r for r in refs if r.get("file") != remove and r.get("path") != remove]
+            if len(kept) == len(refs):
+                raise ApiError(404, "That reference isn't on this batch.")
+            b.job["references"] = kept
+            (b.refs_dir / remove).unlink(missing_ok=True) if Path(remove).name == remove else None
+            self.log(b, "Style reference removed.")
+            b.save_job()
+            return self.detail(b)
+
+        if "anchor" in body:
+            clips = b.clips()
+            anchor = body.get("anchor")
+            if anchor in (None, 0, ""):
+                for c in clips:
+                    if (c.get("ref") or {}).get("kind") == "frame":
+                        c["ref"] = None
+                self.log(b, "Anchor frame cleared.")
+            else:
+                try:
+                    index = int(anchor)
+                except (TypeError, ValueError):
+                    raise ApiError(400, "The anchor has to be a clip number.") from None
+                if not 0 < index <= len(clips):
+                    raise ApiError(400, f"This batch has {plural(len(clips), 'clip')}.")
+                for i, c in enumerate(clips, start=1):
+                    if i == index:
+                        if (c.get("ref") or {}).get("kind") == "frame":
+                            c["ref"] = None          # the anchor cannot reference itself
+                    elif (c.get("ref") or {}).get("kind") != "file":
+                        c["ref"] = {"kind": "frame", "index": index}
+                self.log(b, f"Frame {index} is the anchor: every other clip is drawn from it.")
+            b.save_job()
+            return self.detail(b)
+
+        raise ApiError(400, "Nothing to do: send remove or anchor.")
+
     def summaries(self):
         out = []
         try:
@@ -569,17 +618,28 @@ class Core:
                      stage=None, task_id=None, failed_by=None, finished_at=time.time())
             self.log(b, f"{clip_name}: frame replaced with a picture you dropped in.")
         elif kind == "reference":
-            saved = save_upload(b.refs_dir, body.get("filename"), body.get("data"))
-            if clip_name:
-                clip = b.clip(clip_name)
+            # one picture, however many clips want it: uploaded once, stored once
+            targets = [str(c) for c in (body.get("clips") or []) if str(c)] or ([clip_name] if clip_name else [])
+            existing = str(body.get("file") or "")      # reuse a picture already in refs/
+            if existing:
+                if not (b.refs_dir / existing).is_file() or Path(existing).name != existing:
+                    raise ApiError(404, "That picture isn't in this batch any more.")
+                saved = existing
+            else:
+                saved = save_upload(b.refs_dir, body.get("filename"), body.get("data"))
+            for target in targets:
+                clip = b.clip(target)
                 if not clip:
-                    raise ApiError(404, "Unknown clip.")
+                    raise ApiError(404, f"Unknown clip {target}.")
                 clip["ref"] = {"kind": "file", "file": saved}
-                self.log(b, f"{clip_name}: reference picture added.")
+            if targets:
+                self.log(b, f"Reference picture added to {plural(len(targets), 'clip')}: "
+                            f"{', '.join(targets)}.")
             else:
                 refs = b.job.setdefault("references", [])
-                refs.append({"kind": "file", "file": saved})
-                self.log(b, "Reference picture added for the whole batch.")
+                if not any(r.get("file") == saved for r in refs):
+                    refs.append({"kind": "file", "file": saved})
+                self.log(b, "Style reference added for every frame in the batch.")
             b.save_job()
         else:
             raise ApiError(400, "Unknown kind.")
@@ -908,6 +968,11 @@ def api_edit_clip(h, name):
 @route("POST", f"/api/batches/{NAME}/attach")
 def api_attach(h, name):
     return h.core.attach(name, h.read_body())
+
+
+@route("POST", f"/api/batches/{NAME}/references")
+def api_batch_references(h, name):
+    return h.core.batch_references(name, h.read_body())
 
 
 @route("POST", f"/api/batches/{NAME}/delete")

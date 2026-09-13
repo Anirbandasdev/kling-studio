@@ -388,6 +388,7 @@ footer .sp { margin-left: auto; }
       <li><a href="#key">Connect your key</a></li>
       <li><a href="#prompt">Get the prompt</a></li>
       <li><a href="#frames">Make the frames</a></li>
+      <li><a href="#refs">Keeping it consistent</a></li>
       <li><a href="#review">Check and fix</a></li>
       <li><a href="#videos">Make the videos</a></li>
       <li><a href="#costs">What it costs</a></li>
@@ -723,6 +724,58 @@ footer .sp { margin-left: auto; }
       </div>
       <figcaption>Cancel sends nothing. While it runs you can close the window — the batch keeps going and the files still download.</figcaption>
     </figure>
+  </section>
+
+  <section id="refs">
+    <div class="eyebrow">Consistency</div>
+    <h2>Keeping the same face across clips</h2>
+    <p class="lede">Nano Banana 2 draws each frame from scratch, so left alone it invents a slightly different person every time. Three ways to stop that, on the <b>References</b> panel at the top of a batch.</p>
+
+    <div class="flow" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="flow-card">
+        <b>A style reference</b>
+        <span>One picture applied to <em>every</em> frame in the batch — your avatar, the product, a look you want matched. Add it once and it goes on all of them.</span>
+        <em>Add style reference</em>
+      </div>
+      <div class="flow-card">
+        <b>An anchor frame</b>
+        <span>Draw one clip first, then build every other clip from it. Pick which clip in the dropdown and the rest follow it, so the same face carries through.</span>
+        <em>Anchor frame</em>
+      </div>
+      <div class="flow-card">
+        <b>One picture, many clips</b>
+        <span>When several clips ask for a picture, the popup offers <b>Use it for all clips waiting</b> — upload once, it covers the lot.</span>
+        <em>In the popup</em>
+      </div>
+    </div>
+
+    <figure>
+      <div class="shot">
+        <div class="shot-bar"><i></i><i></i><i></i><span>References panel</span></div>
+        <div class="shot-body">
+          <div class="panel">
+            <div class="panel-label">References <span style="float:right;text-transform:none;letter-spacing:0;color:var(--app-text-3)">Used on every frame in this batch</span></div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <div style="width:64px;height:64px;border-radius:11px;background:linear-gradient(150deg,#6a4bd8,#2aa7c4);border:1px solid var(--app-line)"></div>
+              <div style="width:64px;height:64px;border-radius:11px;border:1px dashed var(--app-line);display:grid;place-items:center;font-size:10px;color:var(--app-text-3);text-align:center;padding:6px">Add style reference</div>
+            </div>
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--app-line);display:flex;justify-content:space-between;gap:14px;align-items:center">
+              <div>
+                <b style="font-size:12px">Anchor frame</b>
+                <div style="font-size:11px;color:var(--app-text-3)">Frame 1 is drawn first, then used for 5 other clips.</div>
+              </div>
+              <div class="ghost">Frame 1 · c150_clip01</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption>A style reference goes on every frame. The anchor makes one clip the source for the rest. They work together — style plus anchor is the most consistent setting.</figcaption>
+    </figure>
+
+    <div class="note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m5 18 5-5 4 4 2-2 3 3"/></svg>
+      <div>A clip that has its own picture keeps it — setting an anchor never overwrites a reference you attached by hand. Uploading the same picture twice doesn't happen either: it is stored once and pointed at from every clip that uses it.</div>
+    </div>
   </section>
 
   <section id="review">
