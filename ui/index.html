@@ -1177,7 +1177,8 @@ function renderRefs() {
         <div class="card-head" style="margin-bottom:8px">
           <span class="card-title">Anchor — the character to lock</span>
           <span class="dim" style="font-size:12.5px">${a.locked ? "On every frame in this batch"
-            : a.file ? "Look at it, then lock it" : "Drawn first, before anything else"}</span>
+            : a.file ? "Look at it, then lock it"
+            : "Have a photo of them? Use my picture — no need to draw one"}</span>
         </div>
         <textarea class="textarea" id="anchorPrompt" rows="2" spellcheck="false" ${drawing ? "disabled" : ""}
           placeholder="Who or what has to stay the same: a portrait of the person, the product on a plain background…">${esc(a.prompt || "")}</textarea>
@@ -1205,9 +1206,9 @@ function renderRefs() {
     </div>
     <div class="refs-foot">
       <div>
-        <b>Anchor frame</b>
+        <b>Or anchor to one of your own clips</b>
         <span>${anchor ? `Frame ${anchor.index} is drawn first, then used for ${plural(anchor.clips, "other clip")}.`
-          : "Draw one frame first and build every other clip from it, so faces and products match."}</span>
+          : "No portrait to lock? Pick a clip that shows the subject clearly. It is drawn first and the others copy it — free, since you were paying for that frame anyway."}</span>
       </div>
       <div class="refs-actions">
         <select class="input" id="anchorPick" ${b.running ? "disabled" : ""}>
