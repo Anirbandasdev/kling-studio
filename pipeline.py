@@ -337,6 +337,18 @@ class Batch:
         a = self.job.get("anchor")
         return dict(a) if isinstance(a, dict) else {}
 
+    def anchor_frame(self):
+        """the clip number every other clip is drawn from, or 0 for none"""
+        try:
+            n = int(self.job.get("anchor_frame") or 0)
+        except (TypeError, ValueError):
+            return 0
+        return n if 0 < n <= len(self.clips()) else 0
+
+    def anchor_frame_name(self):
+        n = self.anchor_frame()
+        return self.clips()[n - 1]["name"] if n else None
+
     def anchor_file(self):
         """the locked anchor's path, or None when there isn't one or it isn't locked"""
         a = self.anchor()
@@ -566,6 +578,9 @@ class Runner(threading.Thread):
 
     def _reference_ready(self, name):
         """a clip that copies another clip's frame can only be sent once that frame exists"""
+        lead = self.batch.anchor_frame_name()
+        if lead and lead != name and not self.batch.frame_ready(lead):
+            return False
         need = self.batch.reference_urls_needed(name)
         if not need or need[0] != "frame":
             return True
@@ -606,6 +621,11 @@ class Runner(threading.Thread):
         anchor = b.anchor_file()          # the locked character, on every frame in the batch
         if anchor:
             urls.append(self._upload(anchor))
+        lead = b.anchor_frame_name()      # and the anchor frame, on every clip but itself
+        if lead and lead != name:
+            if not b.frame_ready(lead):
+                raise RuntimeError(f"needs frame {b.anchor_frame()} first, and that frame isn't ready")
+            urls.append(self._upload(b.frame_path(lead)))
         for ref in b.job.get("references") or []:
             path = Path(ref["path"]) if ref.get("path") else (b.refs_dir / ref["file"] if ref.get("file") else None)
             if path and path.is_file():
@@ -621,8 +641,13 @@ class Runner(threading.Thread):
         return urls
 
     def _order(self, names):
-        """clips that reference another clip's frame go last"""
-        return sorted(names, key=lambda n: 1 if (self.batch.reference_urls_needed(n) or ("", ))[0] == "frame" else 0)
+        """the anchor frame first, then everything, then clips copying another frame"""
+        lead = self.batch.anchor_frame_name()
+        def rank(n):
+            if n == lead:
+                return -1
+            return 1 if (self.batch.reference_urls_needed(n) or ("", ))[0] == "frame" else 0
+        return sorted(names, key=rank)
 
     def _make_all(self, names):
         b = self.batch

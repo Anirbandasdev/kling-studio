@@ -472,9 +472,7 @@ class Core:
             clips = b.clips()
             anchor = body.get("anchor")
             if anchor in (None, 0, ""):
-                for c in clips:
-                    if (c.get("ref") or {}).get("kind") == "frame":
-                        c["ref"] = None
+                b.job["anchor_frame"] = 0
                 self.log(b, "Anchor frame cleared.")
             else:
                 try:
@@ -483,13 +481,9 @@ class Core:
                     raise ApiError(400, "The anchor has to be a clip number.") from None
                 if not 0 < index <= len(clips):
                     raise ApiError(400, f"This batch has {plural(len(clips), 'clip')}.")
-                for i, c in enumerate(clips, start=1):
-                    if i == index:
-                        if (c.get("ref") or {}).get("kind") == "frame":
-                            c["ref"] = None          # the anchor cannot reference itself
-                    elif (c.get("ref") or {}).get("kind") != "file":
-                        c["ref"] = {"kind": "frame", "index": index}
-                self.log(b, f"Frame {index} is the anchor: every other clip is drawn from it.")
+                b.job["anchor_frame"] = index
+                self.log(b, f"Frame {index} is the anchor: it is drawn first, then sent with "
+                            "every other clip as well as whatever that clip already uses.")
             b.save_job()
             return self.detail(b)
 
@@ -548,6 +542,7 @@ class Core:
             "image_settings": {**pl.DEFAULT_IMAGE_SETTINGS, **b.job.get("image_settings", {})},
             "references": b.job.get("references") or [],
             "anchor": b.anchor(),
+            "anchor_frame": b.anchor_frame(),
             "clips": clips, "counts": b.counts(), "plan": b.plan(),
             "running": runner is not None, "stage": runner.stage if runner else None,
             "stopping": bool(runner and runner.cancelled),

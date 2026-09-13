@@ -1148,10 +1148,7 @@ function renderBatch() {
 }
 
 function anchorOf(b) {
-  const counts = {};
-  for (const c of b.clips) if (c.ref && c.ref.kind === "frame") counts[c.ref.index] = (counts[c.ref.index] || 0) + 1;
-  const best = Object.keys(counts).sort((a, b2) => counts[b2] - counts[a])[0];
-  return best ? { index: +best, clips: counts[best] } : null;
+  return b.anchor_frame ? { index: b.anchor_frame, clips: Math.max(0, b.clips.length - 1) } : null;
 }
 
 function renderRefs() {
@@ -1207,7 +1204,7 @@ function renderRefs() {
     <div class="refs-foot">
       <div>
         <b>Or anchor to one of your own clips</b>
-        <span>${anchor ? `Frame ${anchor.index} is drawn first, then used for ${plural(anchor.clips, "other clip")}.`
+        <span>${anchor ? `Frame ${anchor.index} is drawn first, then sent with ${plural(anchor.clips, "other clip")} — on top of whatever each one already uses.`
           : "No portrait to lock? Pick a clip that shows the subject clearly. It is drawn first and the others copy it — free, since you were paying for that frame anyway."}</span>
       </div>
       <div class="refs-actions">
@@ -1376,11 +1373,14 @@ function updateCard(el, c, i) {
   const parts = [];
   if (b.anchor && b.anchor.locked && b.anchor.file) parts.push("the anchor");
   for (let i = 0; i < (b.references || []).length; i++) parts.push("a style reference");
-  if (c.ref && !c.needs_reference) parts.push(c.ref.kind === "frame" ? `frame ${c.ref.index}` : "its own picture");
+  if (b.anchor_frame && b.clips[b.anchor_frame - 1] && b.clips[b.anchor_frame - 1].name !== c.name) {
+    parts.push(`frame ${b.anchor_frame}`);
+  }
+  if (c.ref && !c.needs_reference) parts.push(c.ref.kind === "frame" ? `frame ${c.ref.index}` : "a picture of its own");
   const used = c.frame && typeof c.frame.references_used === "number" ? c.frame.references_used : parts.length;
   const refText = c.needs_reference ? "needs a reference"
     : used > 1 ? `${used} references`
-    : parts.length === 1 ? `uses ${parts[0]}`
+    : parts.length === 1 ? (parts[0] === "a picture of its own" ? "uses a reference picture" : `uses ${parts[0]}`)
     : used === 1 ? "uses a reference" : "";
   setHTML($(".clip-name", el), `<span>${esc(c.name)}</span>${refText ?
     `<span class="ref-badge${c.needs_reference ? " ask" : ""}" title="${esc(parts.length ? `Drawn with ${parts.join(" + ")}` : "")}">${esc(refText)}</span>` : ""}`);

@@ -250,18 +250,35 @@ class ServerTests(unittest.TestCase):
                          {"remove": d["references"][0]["file"]})
         self.assertEqual(d["references"], [])
 
-    def test_an_anchor_frame_points_every_other_clip_at_it(self):
+    def test_an_anchor_frame_is_set_and_cleared_on_the_batch(self):
         clips = [{"image": f"shot {i}", "motion": "moves"} for i in range(1, 5)]
         self.make("c163", clips)
         _, d = self.call("POST", "/api/batches/c163/references", {"anchor": 2})
-        refs = [c["ref"] for c in d["clips"]]
-        self.assertIsNone(refs[1])                                          # the anchor itself
-        self.assertEqual([r["index"] for r in refs if r], [2, 2, 2])
+        self.assertEqual(d["anchor_frame"], 2)
+        self.assertEqual([c["ref"] for c in d["clips"]], [None, None, None, None])
         self.assertEqual(d["plan"]["frames_make"], [c["name"] for c in d["clips"]])
 
         self.assertEqual(self.call("POST", "/api/batches/c163/references", {"anchor": 9})[0], 400)
         _, d = self.call("POST", "/api/batches/c163/references", {"anchor": None})
-        self.assertEqual([c["ref"] for c in d["clips"]], [None, None, None, None])
+        self.assertEqual(d["anchor_frame"], 0)
+
+    def test_the_anchor_frame_goes_with_every_clip_including_ones_with_their_own(self):
+        clips = [{"image": f"shot {i}", "motion": "moves"} for i in range(1, 4)]
+        self.make("c165", clips)
+        self.call("POST", "/api/batches/c165/attach",
+                  {"kind": "reference", "clips": ["c165_clip03"], "filename": "own.png",
+                   "data": base64.b64encode(png_bytes()).decode()})
+        _, d = self.call("POST", "/api/batches/c165/references", {"anchor": 1})
+        self.assertEqual(d["anchor_frame"], 1)
+        self.assertIsNone(d["clips"][1]["ref"])            # clip refs are left alone entirely
+        self.assertEqual(d["clips"][2]["ref"]["kind"], "file")
+
+        self.run_stage("c165", "frames")
+        by_prompt = {i["prompt"]: len(i["refs"]) for i in self.kie.images}
+        self.assertEqual(by_prompt["shot 1"], 0)           # the anchor itself
+        self.assertEqual(by_prompt["shot 2"], 1)           # the anchor frame
+        self.assertEqual(by_prompt["shot 3"], 2)           # the anchor frame + its own picture
+        self.assertEqual(self.kie.images[0]["prompt"], "shot 1")   # drawn first, so it can be used
 
     def test_an_anchor_leaves_a_clip_that_has_its_own_picture_alone(self):
         clips = [{"image": "a", "motion": "a"},
@@ -271,7 +288,8 @@ class ServerTests(unittest.TestCase):
                   {"kind": "reference", "clips": ["c164_clip02"], "filename": "own.png",
                    "data": base64.b64encode(png_bytes()).decode()})
         _, d = self.call("POST", "/api/batches/c164/references", {"anchor": 1})
-        self.assertEqual(d["clips"][1]["ref"]["kind"], "file")              # its own picture wins
+        self.assertEqual(d["clips"][1]["ref"]["kind"], "file")              # its own picture is untouched
+        self.assertEqual(d["anchor_frame"], 1)                              # and the anchor applies too
 
     # ---- the anchor
 
