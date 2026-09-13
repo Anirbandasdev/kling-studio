@@ -503,12 +503,18 @@ class Core:
         try:
             self.log(b, "Anchor: sending to kie.ai…")
             task = pl.submit_image(prompt, b.job.get("image_settings", {}), [], self.cfg.api_key)
-            b.record_spend("reference", self.frame_price(b))   # charged now, not when it arrives
+            b.record_spend("reference", self.frame_price(b), task=task,   # charged now, at the estimate
+                           signature=pl.frame_signature(b.job.get("image_settings")))
             deadline = time.time() + pl.POLL_TIMEOUT
             url = None
             while time.time() < deadline:
                 time.sleep(max(3, pl.POLL_EVERY // 4))
-                status, result, _raw = pl.check_task(task, self.cfg.api_key, pl.IMAGE_SUFFIXES)
+                status, result, raw = pl.check_task(task, self.cfg.api_key, pl.IMAGE_SUFFIXES)
+                if status in ("done", "failed"):
+                    moved = b.settle_spend(task, pl.credits_consumed(raw))
+                    if moved and moved[0] != moved[1]:
+                        self.log(b, f"kie.ai charged {moved[1]:g} credits for that picture"
+                                    f"{f', not the {moved[0]:g} estimated' if moved[0] else ''}.")
                 if status == "done":
                     url = result
                     break
@@ -538,17 +544,32 @@ class Core:
     # ---- what this batch's work costs
 
     def frame_price(self, b):
-        """credits for one frame of this batch: your override, or kie.ai's price for
-        the resolution it is drawn at"""
-        return self.cfg.frame_credits or pl.credits_per_frame(b.job.get("image_settings"))
+        """credits for one frame of this batch: your override, then what kie.ai last
+        charged this batch for a frame like it, then the published price"""
+        image_settings = b.job.get("image_settings")
+        return (self.cfg.frame_credits
+                or b.last_charged("frame", pl.frame_signature(image_settings))
+                or pl.credits_per_frame(image_settings))
+
+    def video_price(self, b):
+        settings = {**pl.DEFAULT_SETTINGS, **(b.job.get("settings") or {})}
+        return b.last_charged("video", pl.video_signature(settings)) or pl.credits_per_video(settings)
 
     def prices(self, b):
         """the numbers behind every estimate the page shows for this batch"""
         settings = {**pl.DEFAULT_SETTINGS, **(b.job.get("settings") or {})}
-        return {"frame": self.frame_price(b),
-                "video": pl.credits_per_video(settings),
-                "video_per_second": pl.video_credits_per_second(settings),
-                "override": bool(self.cfg.frame_credits)}
+        video = self.video_price(b)
+        seconds = 0
+        try:
+            seconds = int(settings.get("duration", 5))
+        except (TypeError, ValueError):
+            pass
+        learned = bool(b.last_charged("frame", pl.frame_signature(b.job.get("image_settings")))
+                       or b.last_charged("video", pl.video_signature(settings)))
+        return {"frame": self.frame_price(b), "video": video,
+                "video_per_second": (round(video / seconds, 2) if video and seconds else None),
+                "override": bool(self.cfg.frame_credits),
+                "learned": learned}
 
     def _forget_file(self, b, file):
         """bin a picture in refs/ once nothing at all points at it any more"""

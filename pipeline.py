@@ -162,6 +162,23 @@ def find_result_url(obj, suffixes):
     return None
 
 
+def credits_consumed(raw):
+    """What kie.ai says this task really cost, from recordInfo's creditsConsumed.
+
+    Their docs call it "the actual number of credits deducted during task execution",
+    so it beats any price list we carry. None when they didn't say.
+    """
+    if not isinstance(raw, dict):
+        return None
+    value = raw.get("creditsConsumed")
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def check_task(task_id, key, suffixes=VIDEO_SUFFIXES):
     """One status check.
 
@@ -247,8 +264,13 @@ def download_file(url, dest: Path, progress=None):
 
 # ------------------------------------------------------------------ what kie.ai charges
 #
-# From kie.ai's published price list (checked 14 September 2026). One credit is
-# $0.005, so every price here is credits × half a cent.
+# These are estimates, for the confirmation before a run. What a task really cost
+# comes back from kie.ai in recordInfo's creditsConsumed, and the ledger is
+# corrected to that the moment it finishes, so a stale number here is only ever a
+# slightly wrong quote, never a wrong total.
+#
+# From kie.ai's published price list (checked 14 September 2026), with the frame
+# prices set to what this account is actually billed. One credit is $0.005.
 #
 # nano-banana-2 is charged per picture, by the resolution asked for. kling-3.0 is
 # charged per second of video, by the resolution its mode picks and by whether the
@@ -256,8 +278,11 @@ def download_file(url, dest: Path, progress=None):
 
 CREDIT_USD = 0.005
 
-FRAME_CREDITS = {"1K": 8, "2K": 12, "4K": 18}
-FRAME_CREDITS_FALLBACK = 12                # a resolution we don't know: quote the middle one
+# The estimate only has to be close: every task is corrected to kie.ai's own
+# creditsConsumed as soon as it finishes. 1K and 2K are what this account has
+# really been charged — kie.ai's price page says 8 at 1K, and bills 12.
+FRAME_CREDITS = {"1K": 12, "2K": 12, "4K": 18}
+FRAME_CREDITS_FALLBACK = 12                # a resolution we don't know: quote the usual
 
 VIDEO_CREDITS_PER_SECOND = {               # mode -> {sound off, sound on}
     "std": {False: 14, True: 20},          # 720p
@@ -273,6 +298,19 @@ PRICES = {                                 # handed to the page so it can show t
                          for mode, by_sound in VIDEO_CREDITS_PER_SECOND.items()},
     "checked": "2026-09-14",
 }
+
+
+def frame_signature(image_settings=None):
+    """what a frame's price depends on"""
+    return str((image_settings or {}).get("resolution")
+               or DEFAULT_IMAGE_SETTINGS["resolution"]).strip().upper()
+
+
+def video_signature(settings=None):
+    """what a video's price depends on"""
+    s = settings or {}
+    return (f"{str(s.get('mode') or 'pro').strip().lower()}"
+            f"/{s.get('duration', DEFAULT_SETTINGS['duration'])}/{1 if s.get('sound') else 0}")
 
 
 def credits_per_frame(image_settings=None):
@@ -475,20 +513,64 @@ class Batch:
             return []
         return [i for i in items if isinstance(i, dict)]
 
-    def record_spend(self, what, credits, clip=""):
-        """Note one paid call. kie.ai charges when a task is created, so this is
-        written at submit time — not when the file finally arrives."""
+    def _write_spend(self, items):
+        try:
+            write_json(self.root / "spend.json", items[-4000:])
+        except OSError:
+            pass              # a ledger that can't be written must never fail a run
+
+    def last_charged(self, what, signature):
+        """The last price kie.ai actually took for this kind of work at these settings.
+
+        Only a confirmed charge counts, and only one made at the same settings, so a
+        batch that switches resolution doesn't quote yesterday's number.
+        """
+        want = ("frame", "reference") if what == "frame" else (what,)
+        for it in reversed(self.spend_log()):
+            if it.get("estimated") or it.get("what") not in want:
+                continue
+            if str(it.get("at_settings") or "") != str(signature):
+                continue
+            credits = int(it.get("credits") or 0)
+            return credits or None          # a refunded 0 says nothing about the price
+        return None
+
+    def record_spend(self, what, credits, clip="", task="", signature=""):
+        """Note one paid call, at the estimate. kie.ai charges when a task is created,
+        so this is written at submit time — not when the file finally arrives, and not
+        yet at the price kie.ai really took. settle_spend corrects it later."""
         with self._lock:
             items = self.spend_log()
-            items.append({"at": time.time(), "what": what, "clip": clip, "credits": int(credits or 0)})
-            try:
-                write_json(self.root / "spend.json", items[-4000:])
-            except OSError:
-                pass          # a ledger that can't be written must never fail a run
+            items.append({"at": time.time(), "what": what, "clip": clip, "task": str(task or ""),
+                          "at_settings": str(signature or ""),
+                          "credits": int(credits or 0), "estimated": True})
+            self._write_spend(items)
+
+    def settle_spend(self, task, credits):
+        """Replace the estimate for one task with what kie.ai says it actually took.
+
+        Returns (estimate, actual) when something changed, so the caller can say so.
+        """
+        if not task or credits is None:
+            return None
+        actual = int(round(float(credits)))
+        with self._lock:
+            items = self.spend_log()
+            for it in reversed(items):
+                if str(it.get("task") or "") != str(task):
+                    continue
+                was = int(it.get("credits") or 0)
+                if not it.get("estimated") and was == actual:
+                    return None                       # already settled at this number
+                it["credits"], it["estimated"] = actual, False
+                self._write_spend(items)
+                return was, actual
+        return None
 
     def spend(self):
-        """totals for the page: what was sent, and how much of it had a known price"""
-        out = {"credits": 0, "calls": 0, "frames": 0, "videos": 0, "references": 0, "unpriced": 0}
+        """totals for the page: what was sent, and how much of it kie.ai has confirmed"""
+        out = {"credits": 0, "calls": 0, "frames": 0, "videos": 0, "references": 0,
+               "unpriced": 0, "settled": 0}
         for it in self.spend_log():
             key = {"frame": "frames", "video": "videos", "reference": "references"}.get(it.get("what"))
             if not key:
@@ -497,8 +579,10 @@ class Batch:
             out["calls"] += 1
             out[key] += 1
             out["credits"] += credits
-            if not credits:
+            if not credits and it.get("estimated"):
                 out["unpriced"] += 1
+            if not it.get("estimated"):
+                out["settled"] += 1               # kie.ai told us this one's real price
         return out
 
     # ---- back out again
@@ -846,7 +930,9 @@ class Runner(threading.Thread):
                     b.job.get("settings", {})) or 0)
                 self._set(name, status="generating" if self.stage == "frames" else "rendering",
                           task_id=tid, submitted_at=time.time(), credits=price or None, **extra)
-                b.record_spend(self.part, price, name)
+                b.record_spend(self.part, price, name, task=tid,
+                               signature=frame_signature(b.job.get("image_settings"))
+                               if self.stage == "frames" else video_signature(b.job.get("settings")))
                 self._log(f"{name}: sent ({tid})")
             if i < len(todo) - 1 and self._cancel.wait(SUBMIT_GAP):
                 return
@@ -883,6 +969,8 @@ class Runner(threading.Thread):
                         self._log(f"{name}: status check failed, trying again: {e}", "warn")
                     continue
 
+                if status in ("done", "failed"):
+                    self._settle(name, st.get("task_id"), raw)   # what it really cost
                 if status == "done":
                     active.remove(name)
                     self._download(name, value)
@@ -906,6 +994,20 @@ class Runner(threading.Thread):
                         self._log(f"{name}: timed out", "warn")
             if active and self._cancel.wait(POLL_EVERY if self.stage == "videos" else max(3, POLL_EVERY // 4)):
                 return
+
+    def _settle(self, name, task_id, raw):
+        """Correct the ledger with the price kie.ai actually took for this task."""
+        charged = credits_consumed(raw)
+        moved = self.batch.settle_spend(task_id, charged)
+        if not moved:
+            return
+        was, actual = moved
+        self._set(name, credits=actual or None)
+        if was != actual:
+            # the estimate and the bill disagree: say so once, with both numbers
+            self._log(f"{name}: kie.ai charged {actual:g} credits"
+                      f"{f', not the {was:g} estimated' if was else ''}.",
+                      "warn" if actual > was else "info")
 
     def _download(self, name, url):
         b = self.batch

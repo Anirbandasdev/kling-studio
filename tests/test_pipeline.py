@@ -33,6 +33,7 @@ class FakeKie:
         self.results = {}          # prompt -> list of check_task results, last one repeats
         self.submit_errors = {}    # prompt -> exception raised once
         self.hold = False          # True: everything stays "rendering", like a real slow job
+        self.charges = None        # credits kie.ai reports per task, as it really does
 
     def upload_image(self, path, key, batch):
         self.uploads.append(path.name)
@@ -64,7 +65,10 @@ class FakeKie:
             default = ("done", f"https://cdn.kie/{task_id}.mp4")
         seq = self.results.get(prompt) or [default]
         result = seq.pop(0) if len(seq) > 1 else seq[0]
-        return result[0], result[1], {"state": result[0]}
+        raw = {"state": result[0]}
+        if self.charges is not None and result[0] in ("done", "failed"):
+            raw["creditsConsumed"] = self.charges
+        return result[0], result[1], raw
 
     def download_file(self, url, dest, progress=None):
         dest.parent.mkdir(parents=True, exist_ok=True)

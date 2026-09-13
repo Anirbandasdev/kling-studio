@@ -462,14 +462,14 @@ class ServerTests(unittest.TestCase):
 
     def test_the_published_prices_reach_the_page(self):
         _, boot = self.call("GET", "/api/bootstrap")
-        self.assertEqual(boot["prices"]["frames"], {"1K": 8, "2K": 12, "4K": 18})
+        self.assertEqual(boot["prices"]["frames"], {"1K": 12, "2K": 12, "4K": 18})
         self.assertEqual(boot["prices"]["video_per_second"]["pro"], {"off": 18, "on": 27})
         self.assertEqual(boot["prices"]["video_per_second"]["std"], {"off": 14, "on": 20})
         self.assertEqual(boot["prices"]["credit_usd"], 0.005)
         self.assertIsNone(boot["config"]["frame_credits"])        # nothing overridden
 
     def test_a_frame_costs_what_its_resolution_costs(self):
-        for resolution, price in (("1K", 8), ("2K", 12), ("4K", 18)):
+        for resolution, price in (("1K", 12), ("2K", 12), ("4K", 18)):
             name = f"c21{resolution}".replace("K", "k")
             self.make(name, [{"image": "a", "motion": "a"}])
             self.call("POST", f"/api/batches/{name}/clip",
@@ -500,25 +500,90 @@ class ServerTests(unittest.TestCase):
         b.save_job()
         self.run_stage("c220", "frames")
         d = self.run_stage("c220", "videos")
-        self.assertEqual(d["prices"], {"frame": 8, "video": 135, "video_per_second": 27, "override": False})
-        self.assertEqual(d["spend"]["credits"], 8 + 135)
+        self.assertEqual(d["prices"], {"frame": 12, "video": 135, "video_per_second": 27,
+                                       "override": False, "learned": False})
+        self.assertEqual(d["spend"]["credits"], 12 + 135)
 
     def test_a_new_batch_is_1k_unless_you_say_otherwise(self):
         """1K is kie.ai's own default and the cheapest frame there is"""
         self.assertEqual(pl.DEFAULT_IMAGE_SETTINGS["resolution"], "1K")
-        self.assertEqual(pl.credits_per_frame({}), 8)              # nothing said: the default
-        self.assertEqual(pl.credits_per_frame(None), 8)
-        self.assertEqual(pl.credits_per_frame({"resolution": "banana"}), 12)   # unknown: the middle
+        self.assertEqual(pl.credits_per_frame({}), 12)             # nothing said: the default
+        self.assertEqual(pl.credits_per_frame(None), 12)
+        self.assertEqual(pl.credits_per_frame({"resolution": "banana"}), 12)   # unknown: the usual
 
         status, d = self.call("POST", "/api/batches", {"name": "c222", "clips": [{"image": "a", "motion": "a"}]})
         self.assertEqual(status, 200, d)
         self.assertEqual(d["image_settings"]["resolution"], "1K")
-        self.assertEqual(d["prices"]["frame"], 8)
+        self.assertEqual(d["prices"]["frame"], 12)
         _, boot = self.call("GET", "/api/bootstrap")
         self.assertEqual(boot["image_defaults"]["resolution"], "1K")
         d = self.run_stage("c222", "frames")
         self.assertEqual(self.kie.images[-1]["settings"]["resolution"], "1K")
-        self.assertEqual(d["spend"]["credits"], 8)
+        self.assertEqual(d["spend"]["credits"], 12)
+
+    def test_what_kie_ai_says_it_charged_beats_the_estimate(self):
+        """recordInfo carries creditsConsumed: the ledger is corrected to it"""
+        self.kie.charges = 12                       # kie.ai bills 12 whatever we guessed
+        self.make("c223", [{"image": "a", "motion": "moves"}])
+        b = self.server.core.get_batch("c223")
+        b.job["image_settings"] = {"aspect_ratio": "9:16", "resolution": "4K"}   # we would quote 18
+        b.save_job()
+        _, d = self.call("GET", "/api/batches/c223")
+        self.assertEqual(d["prices"]["frame"], 18)
+
+        d = self.run_stage("c223", "frames")
+        self.assertEqual(d["spend"]["credits"], 12, "the ledger should hold kie.ai's figure")
+        self.assertEqual(d["spend"]["settled"], 1)
+        self.assertTrue(any("charged 12 credits" in l["text"] and "not the 18" in l["text"]
+                            for l in d["log"]), [l["text"] for l in d["log"]])
+
+        self.kie.charges = 90
+        d = self.run_stage("c223", "videos")
+        self.assertEqual(d["spend"]["credits"], 12 + 90)
+        self.assertEqual(d["spend"]["settled"], 2)
+
+    def test_without_a_figure_from_kie_ai_the_estimate_stands(self):
+        self.kie.charges = None                     # older tasks don't carry creditsConsumed
+        self.make("c224", [{"image": "a", "motion": "a"}])
+        d = self.run_stage("c224", "frames")
+        self.assertEqual((d["spend"]["credits"], d["spend"]["settled"]), (12, 0))
+
+    def test_a_refunded_failure_settles_to_nothing(self):
+        self.kie.charges = 0                        # kie.ai charged nothing for a failed job
+        self.make("c225", [{"image": "fail please", "motion": "a"}])
+        self.kie.results["fail please"] = [("failed", "moderation said no")]
+        d = self.run_stage("c225", "frames")
+        self.assertEqual(d["counts"]["failed"], 1)
+        self.assertEqual(d["spend"]["credits"], 0)
+        self.assertEqual(d["spend"]["settled"], 1)
+
+    def test_the_estimate_follows_what_kie_ai_last_charged(self):
+        """kie.ai's own price list has been wrong before: the account's history wins"""
+        self.kie.charges = 12
+        self.make("c226", [{"image": "a", "motion": "a"}, {"image": "b", "motion": "b"}])
+        b = self.server.core.get_batch("c226")
+        b.job["image_settings"] = {"aspect_ratio": "9:16", "resolution": "4K"}
+        b.save_job()
+        _, d = self.call("GET", "/api/batches/c226")
+        self.assertEqual((d["prices"]["frame"], d["prices"]["learned"]), (18, False))   # published
+
+        self.run_stage("c226", "frames")
+        _, d = self.call("GET", "/api/batches/c226")
+        self.assertEqual((d["prices"]["frame"], d["prices"]["learned"]), (12, True))    # charged
+
+        # switch resolution and the old charge no longer applies
+        b.job["image_settings"] = {"aspect_ratio": "9:16", "resolution": "2K"}
+        b.save_job()
+        _, d = self.call("GET", "/api/batches/c226")
+        self.assertEqual((d["prices"]["frame"], d["prices"]["learned"]), (12, False))
+
+    def test_a_refund_is_not_mistaken_for_a_price(self):
+        self.kie.charges = 0
+        self.make("c227", [{"image": "fail please", "motion": "a"}])
+        self.kie.results["fail please"] = [("failed", "no")]
+        self.run_stage("c227", "frames")
+        _, d = self.call("GET", "/api/batches/c227")
+        self.assertEqual((d["prices"]["frame"], d["prices"]["learned"]), (12, False))
 
     def test_a_price_you_set_yourself_wins(self):
         self.make("c221", [{"image": "a", "motion": "a"}])
@@ -653,7 +718,7 @@ class ServerTests(unittest.TestCase):
         self.make("c184")
         _, d = self.call("GET", "/api/batches/c184")
         self.assertEqual(d["spend"], {"credits": 0, "calls": 0, "frames": 0, "videos": 0,
-                                      "references": 0, "unpriced": 0})
+                                      "references": 0, "unpriced": 0, "settled": 0})
         d = self.run_stage("c184", "frames")
         self.assertEqual((d["spend"]["frames"], d["spend"]["credits"]), (2, 24))
         d = self.run_stage("c184", "videos")

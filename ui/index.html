@@ -746,6 +746,11 @@ function videoCredits(s) {
   return per && seconds > 0 ? per * seconds : null;
 }
 
+// An open batch carries its own prices: what kie.ai actually charged it last time,
+// falling back to the published list. Always prefer those over the table.
+const batchFrame = b => (b && b.prices && b.prices.frame) || frameCredits(b && b.image_settings);
+const batchVideo = b => (b && b.prices && b.prices.video) || videoCredits(b && b.settings);
+
 // the published prices, in a sentence, for Settings and the tour
 function priceHint() {
   const p = S.prices;
@@ -1220,15 +1225,16 @@ function renderBatch() {
   $("#bEyebrow").textContent = `Created ${fmtDate(b.created)}`;
   $("#bName").textContent = b.name;
   const s = b.settings, im = b.image_settings;
-  const fPer = frameCredits(im), vPer = videoCredits(s);
+  const fPer = batchFrame(b), vPer = batchVideo(b);
   setHTML($("#bChips"), [
     [`Frames ${im.resolution} · ${im.aspect_ratio}`, ""],
     [`Video ${s.duration}s · ${s.mode === "pro" ? "Pro" : s.mode === "std" ? "Std" : s.mode} · sound ${s.sound ? "on" : "off"}`, ""],
     ...(fPer ? [[`${fPer}${vPer ? ` + ${vPer}` : ""} credits a clip`, "price"]] : []),
     ...(b.references.length ? [[plural(b.references.length, "batch reference"), ""]] : []),
   ].map(([text, kind]) => `<span class="chip${kind ? " " + kind : ""}"${kind === "price"
-    ? ` title="${esc(`${fPer} for the frame${vPer ? ` and ${vPer} for the video, at ${
-        videoPerSecond(s)} credits a second` : ""}`)}"` : ""}>${esc(text)}</span>`).join(""));
+    ? ` title="${esc(`${fPer} for the frame and ${vPer || "?"} for the video. ${
+      (b.prices || {}).learned ? "These are what kie.ai charged this batch last time."
+        : "An estimate until kie.ai says otherwise — it is corrected to their figure as each one finishes."}`)}"` : ""}>${esc(text)}</span>`).join(""));
 
   const c = b.counts;
   const busy = b.clips.filter(x => partStatus(x.frame, b.running, "frame").busy || partStatus(x.video, b.running, "video").busy).length;
@@ -1272,7 +1278,7 @@ function renderBatch() {
     && !b.clips.some(c => c.frame.ready) ? b.plan.frames_make[0] : null;
   tryBtn.hidden = !firstFrame;
   if (firstFrame) {
-    const one = frameCredits(b.image_settings);
+    const one = batchFrame(b);
     setHTML(tryBtn, `${ICON.spark} Try one first${one ? ` · ≈ ${one}` : ""}`);
     tryBtn.title = `Draw ${firstFrame} on its own, before the rest`;
     tryBtn.dataset.clip = firstFrame;
@@ -1298,9 +1304,12 @@ function anchorOf(b) {
 function spendTitle(sp) {
   const bits = [sp.frames ? plural(sp.frames, "frame") : "", sp.videos ? plural(sp.videos, "video") : "",
     sp.references ? plural(sp.references, "drawn reference") : ""].filter(Boolean);
+  const settled = sp.settled || 0;
   return `${bits.join(" + ") || "nothing"} sent to kie.ai since this batch was made.` +
-    (sp.unpriced ? ` ${sp.unpriced} of them had no price set at the time, so they aren't counted.` : "") +
-    " kie.ai refunds some failed jobs, so your real balance may have moved less.";
+    (settled >= sp.calls ? " Every one of these is the price kie.ai says it charged."
+      : settled ? ` ${settled} of ${sp.calls} are the price kie.ai says it charged; the rest are estimates until they finish.`
+      : " These are estimates — each one is corrected to kie.ai's own figure when it finishes.") +
+    (sp.unpriced ? ` ${sp.unpriced} had no price at the time, so they aren't counted.` : "");
 }
 
 // how many pictures the heaviest frame would carry, against kie.ai's ceiling
@@ -1319,7 +1328,7 @@ function renderRefs() {
   const waiting = b.clips.filter(c => c.needs_reference).length;
   host.hidden = false;
   const load = refLoad(b);
-  const drawn = frameCredits(b.image_settings);   // one drawn reference is one frame
+  const drawn = batchFrame(b);                    // one drawn reference is one frame
   setHTML(host, `<div class="card-head">
       <span class="card-title">References</span>
       <span class="dim" style="font-size:12.5px">Every picture here is sent with every frame in this batch</span>
@@ -1407,7 +1416,7 @@ function openDrawReference(b) {
   const paint = () => {
     const a = state();
     const busy = a.status === "working";
-    const price = frameCredits(b.image_settings);
+    const price = batchFrame(S.batch && S.batch.name === b.name ? S.batch : b);
     const img = a.file ? withToken(`/api/batches/${enc(b.name)}/ref/${enc(a.file)}?v=${a.version || 0}`) : "";
     setHTML($("#drawBody", m.el), `
       <label class="field"><span class="label">What has to stay the same</span>
@@ -1447,7 +1456,7 @@ function openDrawReference(b) {
       if (what === "generate") {
         if (!text.trim()) { toast("Write what it should show first.", "error"); return; }
         const ok = await confirmSpend({
-          title: "Draw this reference?", names: ["reference"], per: frameCredits(b.image_settings), what: "frame",
+          title: "Draw this reference?", names: ["reference"], per: batchFrame(b), what: "frame",
           detail: `${b.image_settings.resolution} · ${b.image_settings.aspect_ratio} · nano-banana-2`,
           extra: "Just this picture. Your clips are not touched.",
         });
@@ -1466,7 +1475,7 @@ function openDrawReference(b) {
 }
 
 function nextAction(b) {
-  const p = b.plan, fc = frameCredits(b.image_settings), vc = videoCredits(b.settings);
+  const p = b.plan, fc = batchFrame(b), vc = batchVideo(b);
   if (b.running) return { label: `<span class="spinner" style="width:14px;height:14px;border-width:2px"></span> Working…`, disabled: true, tone: "busy" };
   if (p.blocked.length) return { action: "refs", label: `${ICON.image} Add ${plural(p.blocked.length, "reference")}` };
   if (p.frames_make.length) return { action: "frames", label: `<span class="step">1</span> Generate ${plural(p.frames_make.length, "frame")}${fc ? ` · ≈ ${(fc * p.frames_make.length).toLocaleString()}` : ""}` };
@@ -1627,7 +1636,7 @@ async function startStage(stage, redo) {
     if (!names.length && !checking) { toast("Nothing to do for that step.", "error"); return; }
     let only = redo || null;
     if (names.length) {
-      const per = stage === "frames" ? frameCredits(b.image_settings) : videoCredits(b.settings);
+      const per = stage === "frames" ? batchFrame(b) : batchVideo(b);
       // nothing drawn yet? offer one as a test rather than the whole batch
       const nothingYet = !b.clips.some(c => (stage === "frames" ? c.frame : c.video).ready);
       const alt = !redo && names.length > 1 && nothingYet
@@ -1853,7 +1862,7 @@ function openPromptEditor(clip) {
 function openRedo(clip, stage) {
   const b = S.batch;
   const isFrame = stage === "frames";
-  const per = isFrame ? frameCredits(b.image_settings) : videoCredits(b.settings);
+  const per = isFrame ? batchFrame(b) : batchVideo(b);
   const field = isFrame ? "image" : "motion";
   let m;
   m = openModal({
@@ -2031,13 +2040,14 @@ const TOUR = [
         <li><span class="n cyan">4</span><span>Credits are topped up on kie.ai. A rejected key or an empty balance stops a run immediately and says so on the batch page, so you never lose track.</span></li>
       </ul>
       <div class="tour-art" style="margin-top:17px">
-        <div class="box"><span class="ico">${ICON.image}</span><b>8 · 12 · 18</b><span>per frame · 1K, 2K, 4K</span></div>
+        <div class="box"><span class="ico">${ICON.image}</span><b>12 credits</b><span>per frame · 18 at 4K</span></div>
         <div class="box"><span class="ico">${ICON.video}</span><b>90 credits</b><span>a 5s Pro video, sound off</span></div>
-        <div class="box"><span class="ico">${ICON.receipt}</span><b>≈ 588</b><span>a 6-clip batch at 1K, start to finish</span></div>
+        <div class="box"><span class="ico">${ICON.receipt}</span><b>≈ 612</b><span>a 6-clip batch, start to finish</span></div>
       </div>
-      <p class="hint">kie.ai's own prices are built in: a frame costs what its resolution costs, and a video is charged
-        by the second — more in Pro than Std, and more again with sound on. Every confirmation shows the total before
-        anything is sent, and the batch page keeps a running count of what you have spent.</p>
+      <p class="hint">Every confirmation shows the total before anything is sent, and the batch page keeps a running
+        count. Those are estimates until kie.ai says otherwise — the moment a frame or a video finishes, the app asks
+        kie.ai what it actually charged and corrects the count to that, so the number you end up looking at is
+        their figure, not ours.</p>
       <p class="tour-joke green"><span class="ico">${ICON.shield}</span><span>Your key stays on this machine. Not in the cloud, not in a group chat, not in a spreadsheet called <code>final_FINAL_keys.xlsx</code>. We all know that spreadsheet.</span></p>`,
   },
   {
