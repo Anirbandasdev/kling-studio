@@ -231,6 +231,7 @@ class Core:
         self.runners = {}       # name -> pl.Runner
         self.logs = {}          # name -> deque of log entries
         self.stop_reasons = {}  # name -> why the last run stopped early
+        self.anchors = {}       # name -> thread drawing that batch's anchor
         self.last_ping = time.time()
         self.bye_at = 0.0
         self.shutdown = None    # set by create_server, so an install can close the server
@@ -372,6 +373,83 @@ class Core:
                 store.pop(name, None)
         return {"deleted": name}
 
+    def anchor(self, name, body):
+        """The character portrait a batch locks onto: write the prompt, draw it,
+        look at it, lock it. Only "generate" spends anything."""
+        b = self.get_batch(name)
+        with self.lock:
+            if name in self.runners:
+                raise ApiError(409, "Wait for this batch to finish before changing the anchor.")
+            if name in self.anchors and self.anchors[name].is_alive():
+                raise ApiError(409, "The anchor is still being drawn.")
+        action = str(body.get("action") or "prompt")
+
+        if action == "prompt":
+            b.set_anchor(prompt=str(body.get("prompt") or "").strip())
+            return self.detail(b)
+
+        if action in ("lock", "unlock"):
+            a = b.anchor()
+            if action == "lock" and not (a.get("file") and (b.refs_dir / a["file"]).is_file()):
+                raise ApiError(400, "Draw the anchor (or drop a picture in) before locking it.")
+            b.set_anchor(locked=action == "lock")
+            self.log(b, "Anchor locked: every frame is drawn from it." if action == "lock"
+                        else "Anchor unlocked: frames no longer use it.")
+            return self.detail(b)
+
+        if action == "clear":
+            a = b.anchor()
+            if a.get("file"):
+                (b.refs_dir / a["file"]).unlink(missing_ok=True)
+            b.job["anchor"] = {}
+            b.save_job()
+            self.log(b, "Anchor removed.")
+            return self.detail(b)
+
+        if action == "generate":
+            if not self.cfg.api_key:
+                raise ApiError(400, "Add your kie.ai API key in Settings first.")
+            prompt = str(body.get("prompt") or b.anchor().get("prompt") or "").strip()
+            if not prompt:
+                raise ApiError(400, "Write what the anchor should show first.")
+            b.set_anchor(prompt=prompt, status="working", error="", started_at=time.time())
+            t = threading.Thread(target=self._anchor_worker, args=(b, prompt), daemon=True,
+                                 name=f"anchor-{name}")
+            with self.lock:
+                self.anchors[name] = t
+            t.start()
+            return self.detail(b)
+
+        raise ApiError(400, "Unknown anchor action.")
+
+    def _anchor_worker(self, b, prompt):
+        """one nano-banana-2 still, saved into refs/ - the same call a frame makes"""
+        try:
+            self.log(b, "Anchor: sending to kie.ai…")
+            task = pl.submit_image(prompt, b.job.get("image_settings", {}), [], self.cfg.api_key)
+            deadline = time.time() + pl.POLL_TIMEOUT
+            url = None
+            while time.time() < deadline:
+                time.sleep(max(3, pl.POLL_EVERY // 4))
+                status, result, _raw = pl.check_task(task, self.cfg.api_key, pl.IMAGE_SUFFIXES)
+                if status == "done":
+                    url = result
+                    break
+                if status == "failed":
+                    raise RuntimeError(result or "kie.ai rejected the anchor prompt")
+            if not url:
+                raise RuntimeError("kie.ai didn't finish the anchor in time")
+            old = b.anchor().get("file")
+            name = f"anchor-{int(time.time())}.png"
+            pl.download_file(url, b.refs_dir / name)
+            if old and old != name:
+                (b.refs_dir / old).unlink(missing_ok=True)
+            b.set_anchor(file=name, status="ready", error="", version=int(time.time()))
+            self.log(b, "Anchor ready. Look at it, then lock it.")
+        except Exception as e:                                  # noqa: BLE001 - the message is the UI
+            b.set_anchor(status="failed", error=str(e))
+            self.log(b, f"Anchor failed: {e}", "error")
+
     def batch_references(self, name, body):
         """Manage the pictures that apply to the whole batch, and the anchor frame."""
         b = self.get_batch(name)
@@ -469,6 +547,7 @@ class Core:
             "settings": {**pl.DEFAULT_SETTINGS, **b.job.get("settings", {})},
             "image_settings": {**pl.DEFAULT_IMAGE_SETTINGS, **b.job.get("image_settings", {})},
             "references": b.job.get("references") or [],
+            "anchor": b.anchor(),
             "clips": clips, "counts": b.counts(), "plan": b.plan(),
             "running": runner is not None, "stage": runner.stage if runner else None,
             "stopping": bool(runner and runner.cancelled),
@@ -529,6 +608,8 @@ class Core:
         with self.lock:
             if name in self.runners:
                 raise ApiError(409, "This batch is already working.")
+            if name in self.anchors and self.anchors[name].is_alive():
+                raise ApiError(409, "The anchor is still being drawn. Wait for it, then run.")
         plan = b.plan(redo_frames=redo if stage == "frames" else (),
                       redo_videos=redo if stage == "videos" else ())
         make, check = plan[f"{stage}_make"], plan[f"{stage}_check"]
@@ -607,6 +688,15 @@ class Core:
         with self.lock:
             if name in self.runners:
                 raise ApiError(409, "Wait for this batch to finish before adding pictures.")
+        if kind == "anchor":
+            old = b.anchor().get("file")
+            saved = save_upload(b.refs_dir, body.get("filename"), body.get("data"),
+                                stem=f"anchor-{int(time.time())}")
+            if old and old != saved:
+                (b.refs_dir / old).unlink(missing_ok=True)
+            b.set_anchor(file=saved, status="ready", error="", source="dropped", version=int(time.time()))
+            self.log(b, "Anchor replaced with a picture you dropped in.")
+            return self.detail(b)
         if kind == "frame":
             clip = b.clip(clip_name)
             if not clip:
@@ -968,6 +1058,11 @@ def api_edit_clip(h, name):
 @route("POST", f"/api/batches/{NAME}/attach")
 def api_attach(h, name):
     return h.core.attach(name, h.read_body())
+
+
+@route("POST", f"/api/batches/{NAME}/anchor")
+def api_anchor(h, name):
+    return h.core.anchor(name, h.read_body())
 
 
 @route("POST", f"/api/batches/{NAME}/references")

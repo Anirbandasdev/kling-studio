@@ -273,6 +273,62 @@ class ServerTests(unittest.TestCase):
         _, d = self.call("POST", "/api/batches/c164/references", {"anchor": 1})
         self.assertEqual(d["clips"][1]["ref"]["kind"], "file")              # its own picture wins
 
+    # ---- the anchor
+
+    def wait_anchor(self, name, want="ready"):
+        end = time.time() + 15
+        while time.time() < end:
+            _, d = self.call("GET", f"/api/batches/{name}")
+            if d["anchor"].get("status") == want:
+                return d
+            time.sleep(0.05)
+        self.fail(f"anchor never reached {want}")
+
+    def test_the_anchor_is_drawn_reviewed_then_locked(self):
+        self.make("c170")
+        _, d = self.call("POST", "/api/batches/c170/anchor",
+                         {"action": "prompt", "prompt": "portrait of the avatar, plain background"})
+        self.assertEqual(d["anchor"]["prompt"], "portrait of the avatar, plain background")
+
+        _, d = self.call("POST", "/api/batches/c170/anchor", {"action": "generate"})
+        self.assertEqual(d["anchor"]["status"], "working")
+        d = self.wait_anchor("c170")
+        self.assertTrue(d["anchor"]["file"].startswith("anchor-"))
+        self.assertIs(d["anchor"].get("locked", False), False)          # drawn, not yet in use
+        self.assertEqual(self.kie.images[-1]["prompt"], "portrait of the avatar, plain background")
+
+        self.run_stage("c170", "frames")                                # unlocked: not used yet
+        self.assertEqual([len(i["refs"]) for i in self.kie.images[1:]], [0, 0])
+
+        _, d = self.call("POST", "/api/batches/c170/anchor", {"action": "lock"})
+        self.assertIs(d["anchor"]["locked"], True)
+        self.kie.images.clear()
+        self.run_stage("c170", "frames", redo=["c170_clip01", "c170_clip02"])
+        self.assertEqual([len(i["refs"]) for i in self.kie.images], [1, 1])
+
+    def test_the_anchor_needs_a_prompt_and_a_picture_before_locking(self):
+        self.make("c171")
+        status, err = self.call("POST", "/api/batches/c171/anchor", {"action": "generate"})
+        self.assertEqual(status, 400)
+        self.assertIn("what the anchor should show", err["error"])
+        status, err = self.call("POST", "/api/batches/c171/anchor", {"action": "lock"})
+        self.assertEqual(status, 400)
+        self.assertIn("before locking", err["error"])
+
+    def test_your_own_picture_can_be_the_anchor(self):
+        self.make("c172")
+        _, d = self.call("POST", "/api/batches/c172/attach",
+                         {"kind": "anchor", "filename": "me.png",
+                          "data": base64.b64encode(png_bytes()).decode()})
+        self.assertEqual(d["anchor"]["source"], "dropped")
+        _, d = self.call("POST", "/api/batches/c172/anchor", {"action": "lock"})
+        self.run_stage("c172", "frames")
+        self.assertEqual([len(i["refs"]) for i in self.kie.images], [1, 1])
+
+        _, d = self.call("POST", "/api/batches/c172/anchor", {"action": "clear"})
+        self.assertEqual(d["anchor"], {})
+        self.assertEqual(list((self.tmp / "out" / "c172" / "refs").glob("anchor-*")), [])
+
     def test_rejects_a_file_that_is_not_a_picture(self):
         self.make()
         status, err = self.call("POST", "/api/batches/c150/attach",

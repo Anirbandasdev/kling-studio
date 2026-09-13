@@ -332,6 +332,26 @@ class Batch:
     def clips(self):
         return list(self.job.get("clips") or [])
 
+    def anchor(self):
+        """the character portrait this batch locks onto, if any"""
+        a = self.job.get("anchor")
+        return dict(a) if isinstance(a, dict) else {}
+
+    def anchor_file(self):
+        """the locked anchor's path, or None when there isn't one or it isn't locked"""
+        a = self.anchor()
+        if not a.get("locked") or not a.get("file"):
+            return None
+        path = self.refs_dir / a["file"]
+        return path if path.is_file() else None
+
+    def set_anchor(self, **kw):
+        a = self.anchor()
+        a.update(kw)
+        self.job["anchor"] = a
+        self.save_job()
+        return a
+
     def clip(self, name):
         return next((c for c in self.clips() if c["name"] == name), None)
 
@@ -583,6 +603,9 @@ class Runner(threading.Thread):
         """upload whatever this clip's reference points at; [] when it has none"""
         b = self.batch
         urls = []
+        anchor = b.anchor_file()          # the locked character, on every frame in the batch
+        if anchor:
+            urls.append(self._upload(anchor))
         for ref in b.job.get("references") or []:
             path = Path(ref["path"]) if ref.get("path") else (b.refs_dir / ref["file"] if ref.get("file") else None)
             if path and path.is_file():
