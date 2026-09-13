@@ -44,8 +44,9 @@ themselves from inside the app.
 The first launch needs **right-click the app, then Open** (macOS blocks apps it
 cannot check, once). "Read me first.txt" inside the disk image says the same.
 
-Both need a kie.ai API key, which the app asks for on first launch. Frames cost
-12 credits each, a 5-second video costs 90.
+Both need a kie.ai API key, which the app asks for on first launch. kie.ai's own
+prices are built in: a frame costs 8, 12 or 18 credits at 1K, 2K or 4K, and a
+5-second Pro video 90 (135 with sound). Every run shows the total first.
 """
 
 

@@ -152,7 +152,8 @@ h2 { margin: 0; font: 650 16.5px/1.3 var(--display); letter-spacing: -.015em; }
 .muted { color: var(--text-2); }
 .dim { color: var(--text-3); }
 .chips { display: flex; flex-wrap: wrap; gap: 7px; }
-.chip { display: inline-flex; align-items: center; gap: 7px; height: 29px; padding: 0 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); font-size: 12.5px; color: var(--text-2); max-width: 100%; }
+.chip { display: inline-flex; align-items: center; gap: 7px; min-height: 29px; padding: 4px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); font-size: 12.5px; line-height: 1.35; color: var(--text-2); max-width: 100%; }
+.chip.price { border-color: rgba(139, 123, 255, .32); background: var(--accent-soft); color: #cec7ff; }
 .chip b { color: var(--text); font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
 .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }
 .chip.ok .dot { background: var(--green); box-shadow: 0 0 8px var(--green); }
@@ -725,8 +726,35 @@ const enc = encodeURIComponent;
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const withToken = url => `${url}${url.includes("?") ? "&" : "?"}t=${enc(TOKEN)}`;
 const clipName = (batch, i) => `${batch || "batch"}_clip${String(i + 1).padStart(2, "0")}`;
-const videoCredits = s => (s.mode === "pro" && /^\d+$/.test(String(s.duration))) ? 18 * parseInt(s.duration, 10) : null;
-const frameCredits = () => (S.config && S.config.frame_credits) || null;
+// kie.ai's published prices, sent by the server so there is one copy of them.
+// Frames are charged by resolution; videos by the second, by mode and whether sound is on.
+function frameCredits(imageSettings) {
+  if (S.config && S.config.frame_credits) return S.config.frame_credits;   // your override
+  const table = S.prices && S.prices.frames;
+  if (!table) return null;
+  const at = table[String((imageSettings || {}).resolution || "").toUpperCase()];
+  return at || S.prices.frames_fallback || null;
+}
+function videoPerSecond(s) {
+  const table = S.prices && S.prices.video_per_second;
+  const at = table && table[String((s || {}).mode || "pro").toLowerCase()];
+  return at ? at[(s || {}).sound ? "on" : "off"] : null;
+}
+function videoCredits(s) {
+  const per = videoPerSecond(s);
+  const seconds = parseInt(String((s || {}).duration), 10);
+  return per && seconds > 0 ? per * seconds : null;
+}
+
+// the published prices, in a sentence, for Settings and the tour
+function priceHint() {
+  const p = S.prices;
+  if (!p) return "kie.ai charges by resolution for frames and by the second for videos.";
+  const frames = Object.entries(p.frames || {}).map(([k, v]) => `${k} ${v}`).join(" · ");
+  const pro = (p.video_per_second || {}).pro || {};
+  return `kie.ai's prices: a frame costs ${frames} credits, and a Pro video ${pro.off} credits a second` +
+    `${pro.on ? ` (${pro.on} with sound)` : ""}${p.checked ? `, checked ${p.checked}` : ""}.`;
+}
 function ratio(ar) { const m = String(ar).match(/^(\d+):(\d+)$/); return m ? [+m[1], +m[2]] : [9, 16]; }
 const arCss = ar => ratio(ar).join(" / ");
 function cardMin(ar) { const [w, h] = ratio(ar); const r = w / h; return r >= 1.3 ? "330px" : r > 0.9 ? "260px" : "240px"; }
@@ -854,7 +882,7 @@ function openModal({ title, sub, body, actions = [], wide = false, onDismiss }) 
 
 // ---------------------------------------------------------------- state
 const S = {
-  view: "new", config: null, batches: [], batch: null, batchName: null,
+  view: "new", config: null, batches: [], batch: null, batchName: null, prices: null,
   logOpen: false, wasRunning: {}, spending: false, installing: false, update: null, new: freshNew(),
 };
 
@@ -1097,13 +1125,20 @@ function renderNew() {
     '<div class="empty-actions"><button class="btn btn-sm" data-act="tour">How it works</button> ' +
     '<button class="btn btn-sm" data-act="example">Load an example</button></div>');
 
-  const per = frameCredits();
+  const per = frameCredits(N.image_settings);
+  const vper = videoCredits(N.settings);                       // per clip, at these settings
+  const withMotion = clips.filter(c => c.motion).length;       // clips that become a video
   const summary = $("#newSummary");
   if (issue) setHTML(summary, `<span class="${N.text.trim() ? "issue" : ""}">${esc(issue)}</span>`);
   else setHTML(summary, `<span><b style="color:var(--text)">${plural(clips.length, "frame")}</b> · ${
     esc(N.image_settings.resolution)} · ${esc(N.image_settings.aspect_ratio)}</span>` +
-    `<span class="credits">${ICON.spark.replace("<svg", '<svg width="13" height="13"')} ${
-      per ? `≈ ${(per * clips.length).toLocaleString()} credits` : "frame price: see kie.ai"}</span>`);
+    `<span class="credits" title="${esc(vper
+      ? `${(per * clips.length).toLocaleString()} for the frames + ${(vper * withMotion).toLocaleString()} for ${
+          plural(withMotion, "video")}, at kie.ai's prices`
+      : "frames only: kie.ai has no published price for these video settings")}">${
+      ICON.spark.replace("<svg", '<svg width="13" height="13"')} ${
+      per ? `≈ ${((per * clips.length) + (vper || 0) * withMotion).toLocaleString()} credits${
+        vper ? " all in" : " of frames"}` : "frame price: see kie.ai"}</span>`);
 
   const btn = $("#createBtn");
   btn.disabled = !!issue;
@@ -1185,10 +1220,15 @@ function renderBatch() {
   $("#bEyebrow").textContent = `Created ${fmtDate(b.created)}`;
   $("#bName").textContent = b.name;
   const s = b.settings, im = b.image_settings;
-  setHTML($("#bChips"), [`Frames ${im.resolution} · ${im.aspect_ratio}`,
-    `Video ${s.duration}s · ${s.mode === "pro" ? "Pro" : s.mode} · sound ${s.sound ? "on" : "off"}`,
-    ...(b.references.length ? [`${plural(b.references.length, "batch reference")}`] : [])]
-    .map(t => `<span class="chip">${esc(t)}</span>`).join(""));
+  const fPer = frameCredits(im), vPer = videoCredits(s);
+  setHTML($("#bChips"), [
+    [`Frames ${im.resolution} · ${im.aspect_ratio}`, ""],
+    [`Video ${s.duration}s · ${s.mode === "pro" ? "Pro" : s.mode === "std" ? "Std" : s.mode} · sound ${s.sound ? "on" : "off"}`, ""],
+    ...(fPer ? [[`${fPer}${vPer ? ` + ${vPer}` : ""} credits a clip`, "price"]] : []),
+    ...(b.references.length ? [[plural(b.references.length, "batch reference"), ""]] : []),
+  ].map(([text, kind]) => `<span class="chip${kind ? " " + kind : ""}"${kind === "price"
+    ? ` title="${esc(`${fPer} for the frame${vPer ? ` and ${vPer} for the video, at ${
+        videoPerSecond(s)} credits a second` : ""}`)}"` : ""}>${esc(text)}</span>`).join(""));
 
   const c = b.counts;
   const busy = b.clips.filter(x => partStatus(x.frame, b.running, "frame").busy || partStatus(x.video, b.running, "video").busy).length;
@@ -1232,7 +1272,8 @@ function renderBatch() {
     && !b.clips.some(c => c.frame.ready) ? b.plan.frames_make[0] : null;
   tryBtn.hidden = !firstFrame;
   if (firstFrame) {
-    setHTML(tryBtn, `${ICON.spark} Try one first${frameCredits() ? ` · ≈ ${frameCredits()}` : ""}`);
+    const one = frameCredits(b.image_settings);
+    setHTML(tryBtn, `${ICON.spark} Try one first${one ? ` · ≈ ${one}` : ""}`);
     tryBtn.title = `Draw ${firstFrame} on its own, before the rest`;
     tryBtn.dataset.clip = firstFrame;
   }
@@ -1278,6 +1319,7 @@ function renderRefs() {
   const waiting = b.clips.filter(c => c.needs_reference).length;
   host.hidden = false;
   const load = refLoad(b);
+  const drawn = frameCredits(b.image_settings);   // one drawn reference is one frame
   setHTML(host, `<div class="card-head">
       <span class="card-title">References</span>
       <span class="dim" style="font-size:12.5px">Every picture here is sent with every frame in this batch</span>
@@ -1296,7 +1338,7 @@ function renderRefs() {
         <span>${esc(r.path.split(/[\\/]/).pop())}</span>
         <button class="ref-x" data-remove="${esc(r.path)}" title="Remove this reference">${ICON.trash}</button></figure>`).join("")}
       <button class="ref-add" data-act="add">${ICON.image}<span>Add a picture</span></button>
-      <button class="ref-add" data-act="draw">${ICON.spark}<span>Draw one${frameCredits() ? ` · ≈ ${frameCredits()}` : ""}</span></button>
+      <button class="ref-add" data-act="draw">${ICON.spark}<span>Draw one${drawn ? ` · ≈ ${drawn}` : ""}</span></button>
       <button class="ref-add" data-act="some" title="One picture for the clips you choose, not the whole batch">${ICON.check}<span>Only some clips</span></button>
     </div>
     <p class="hint">Hold a face, a product or a look steady: drop in a photo you already have, or have one
@@ -1365,6 +1407,7 @@ function openDrawReference(b) {
   const paint = () => {
     const a = state();
     const busy = a.status === "working";
+    const price = frameCredits(b.image_settings);
     const img = a.file ? withToken(`/api/batches/${enc(b.name)}/ref/${enc(a.file)}?v=${a.version || 0}`) : "";
     setHTML($("#drawBody", m.el), `
       <label class="field"><span class="label">What has to stay the same</span>
@@ -1379,7 +1422,7 @@ function openDrawReference(b) {
       ? '<button class="btn" data-draw="hide">Hide</button>'
       : `${a.file ? '<button class="btn danger-hover" data-draw="discard">Throw away</button>' : ""}
          <button class="btn" data-draw="close">Close</button>
-         <button class="btn" data-draw="generate">${a.file ? "Draw again" : "Draw it"}${frameCredits() ? ` · ≈ ${frameCredits()}` : ""}</button>
+         <button class="btn" data-draw="generate">${a.file ? "Draw again" : "Draw it"}${price ? ` · ≈ ${price}` : ""}</button>
          ${a.file ? '<button class="btn btn-primary" data-draw="use">Keep it</button>' : ""}`;
     paintPictures(m.el);
     if (busy) timer = setTimeout(() => pollBatch().then(paint), 1500);
@@ -1404,7 +1447,7 @@ function openDrawReference(b) {
       if (what === "generate") {
         if (!text.trim()) { toast("Write what it should show first.", "error"); return; }
         const ok = await confirmSpend({
-          title: "Draw this reference?", names: ["reference"], per: frameCredits(), what: "frame",
+          title: "Draw this reference?", names: ["reference"], per: frameCredits(b.image_settings), what: "frame",
           detail: `${b.image_settings.resolution} · ${b.image_settings.aspect_ratio} · nano-banana-2`,
           extra: "Just this picture. Your clips are not touched.",
         });
@@ -1423,7 +1466,7 @@ function openDrawReference(b) {
 }
 
 function nextAction(b) {
-  const p = b.plan, fc = frameCredits(), vc = videoCredits(b.settings);
+  const p = b.plan, fc = frameCredits(b.image_settings), vc = videoCredits(b.settings);
   if (b.running) return { label: `<span class="spinner" style="width:14px;height:14px;border-width:2px"></span> Working…`, disabled: true, tone: "busy" };
   if (p.blocked.length) return { action: "refs", label: `${ICON.image} Add ${plural(p.blocked.length, "reference")}` };
   if (p.frames_make.length) return { action: "frames", label: `<span class="step">1</span> Generate ${plural(p.frames_make.length, "frame")}${fc ? ` · ≈ ${(fc * p.frames_make.length).toLocaleString()}` : ""}` };
@@ -1584,7 +1627,7 @@ async function startStage(stage, redo) {
     if (!names.length && !checking) { toast("Nothing to do for that step.", "error"); return; }
     let only = redo || null;
     if (names.length) {
-      const per = stage === "frames" ? frameCredits() : videoCredits(b.settings);
+      const per = stage === "frames" ? frameCredits(b.image_settings) : videoCredits(b.settings);
       // nothing drawn yet? offer one as a test rather than the whole batch
       const nothingYet = !b.clips.some(c => (stage === "frames" ? c.frame : c.video).ready);
       const alt = !redo && names.length > 1 && nothingYet
@@ -1810,7 +1853,7 @@ function openPromptEditor(clip) {
 function openRedo(clip, stage) {
   const b = S.batch;
   const isFrame = stage === "frames";
-  const per = isFrame ? frameCredits() : videoCredits(b.settings);
+  const per = isFrame ? frameCredits(b.image_settings) : videoCredits(b.settings);
   const field = isFrame ? "image" : "motion";
   let m;
   m = openModal({
@@ -1988,11 +2031,13 @@ const TOUR = [
         <li><span class="n cyan">4</span><span>Credits are topped up on kie.ai. A rejected key or an empty balance stops a run immediately and says so on the batch page, so you never lose track.</span></li>
       </ul>
       <div class="tour-art" style="margin-top:17px">
-        <div class="box"><span class="ico">${ICON.image}</span><b>12 credits</b><span>per frame · Nano Banana 2</span></div>
-        <div class="box"><span class="ico">${ICON.video}</span><b>90 credits</b><span>per 5s video · Kling 3.0 Pro</span></div>
-        <div class="box"><span class="ico">${ICON.receipt}</span><b>≈ 612</b><span>a 6-clip batch, start to finish</span></div>
+        <div class="box"><span class="ico">${ICON.image}</span><b>8 · 12 · 18</b><span>per frame · 1K, 2K, 4K</span></div>
+        <div class="box"><span class="ico">${ICON.video}</span><b>90 credits</b><span>a 5s Pro video, sound off</span></div>
+        <div class="box"><span class="ico">${ICON.receipt}</span><b>≈ 612</b><span>a 6-clip batch at 2K, start to finish</span></div>
       </div>
-      <p class="hint">Those numbers are built in, and every confirmation shows the total before anything is sent. If kie.ai changes the frame price, correct it in <b>Settings → Credits per frame</b>.</p>
+      <p class="hint">kie.ai's own prices are built in: a frame costs what its resolution costs, and a video is charged
+        by the second — more in Pro than Std, and more again with sound on. Every confirmation shows the total before
+        anything is sent, and the batch page keeps a running count of what you have spent.</p>
       <p class="tour-joke green"><span class="ico">${ICON.shield}</span><span>Your key stays on this machine. Not in the cloud, not in a group chat, not in a spreadsheet called <code>final_FINAL_keys.xlsx</code>. We all know that spreadsheet.</span></p>`,
   },
   {
@@ -2602,8 +2647,9 @@ function openSettings(reason) {
         <div class="input-row"><input class="input" id="setOut" value="${esc(c.output_dir)}" spellcheck="false"><button class="btn" id="setBrowse" type="button">Browse…</button></div>
         <div class="hint">Each batch gets its own folder here with its frames and videos.</div></label>
       <label class="field"><span class="label">Credits per frame</span>
-        <input class="input" id="setCredits" inputmode="numeric" value="${c.frame_credits || ""}" placeholder="12">
-        <div class="hint">kie.ai charges 12 credits for each Nano Banana 2 frame. Change it here if their price moves, or leave the box empty to go back to 12. Videos are 18 credits per second in Pro, so 90 for a 5-second clip.</div></label>
+        <input class="input" id="setCredits" inputmode="numeric" value="${c.frame_credits || ""}" placeholder="kie.ai's own prices">
+        <div class="hint">${esc(priceHint())} Leave this empty to use those. Put a number in only if kie.ai's
+          prices move before the app catches up — it then costs every frame that much, whatever the resolution.</div></label>
       <div class="field"><span class="label">When the app starts</span>
         <div class="setting-row" style="padding-top:0"><span>Collect anything still rendering</span>
           <label class="switch"><input type="checkbox" id="setCollect"${c.auto_collect !== false ? " checked" : ""}><span></span></label></div>
@@ -2804,6 +2850,7 @@ async function init() {
   try {
     const boot = await api("/api/bootstrap");
     S.config = boot.config;
+    S.prices = boot.prices || null;
     S.batches = boot.batches;
     S.update = boot.update || null;
     renderUpdateChip();

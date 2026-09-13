@@ -60,7 +60,7 @@ def config_dir():
     return Path(appdata) / "KlingStudio" if appdata else Path.home() / ".kling_studio"
 
 
-DEFAULT_FRAME_CREDITS = 12
+OLD_FLAT_FRAME_CREDITS = 12      # what every frame cost before the prices were looked up
 
 
 class Config:
@@ -74,10 +74,17 @@ class Config:
             data = {}
         self.api_key = data.get("api_key", "")
         self.output_dir = Path(data.get("output_dir") or Path.home() / "Documents" / APP_NAME)
-        # kie.ai charges 12 credits per nano-banana-2 still; Settings can correct it.
-        # Older configs stored null here, from before the price was known.
+        # Frames are priced by resolution (pipeline.FRAME_CREDITS). This is only an
+        # override for when kie.ai's prices move: None means "use the published ones".
         saved = data.get("frame_credits")
-        self.frame_credits = DEFAULT_FRAME_CREDITS if not saved else int(saved)
+        try:
+            saved = int(saved) if saved else None
+        except (TypeError, ValueError):
+            saved = None
+        # every config written before the prices were known holds the flat 12 this app
+        # used to charge for every frame; that is the old default, not a choice, and
+        # keeping it would hide the real 8 at 1K and 18 at 4K
+        self.frame_credits = None if saved == OLD_FLAT_FRAME_CREDITS else saved
         self.update_source = str(data.get("update_source") or updater.DEFAULT_SOURCE)
         self.auto_update_check = bool(data.get("auto_update_check", True))
         # clips left rendering when the app closed are asked about again at the next
@@ -496,7 +503,7 @@ class Core:
         try:
             self.log(b, "Anchor: sending to kie.ai…")
             task = pl.submit_image(prompt, b.job.get("image_settings", {}), [], self.cfg.api_key)
-            b.record_spend("reference", self.cfg.frame_credits)   # charged now, not when it arrives
+            b.record_spend("reference", self.frame_price(b))   # charged now, not when it arrives
             deadline = time.time() + pl.POLL_TIMEOUT
             url = None
             while time.time() < deadline:
@@ -527,6 +534,21 @@ class Core:
         if (b.anchor().get("file") or "") == file:
             return True
         return any((c.get("ref") or {}).get("file") == file for c in b.clips())
+
+    # ---- what this batch's work costs
+
+    def frame_price(self, b):
+        """credits for one frame of this batch: your override, or kie.ai's price for
+        the resolution it is drawn at"""
+        return self.cfg.frame_credits or pl.credits_per_frame(b.job.get("image_settings"))
+
+    def prices(self, b):
+        """the numbers behind every estimate the page shows for this batch"""
+        settings = {**pl.DEFAULT_SETTINGS, **(b.job.get("settings") or {})}
+        return {"frame": self.frame_price(b),
+                "video": pl.credits_per_video(settings),
+                "video_per_second": pl.video_credits_per_second(settings),
+                "override": bool(self.cfg.frame_credits)}
 
     def _forget_file(self, b, file):
         """bin a picture in refs/ once nothing at all points at it any more"""
@@ -639,7 +661,7 @@ class Core:
             "anchor_frame": b.anchor_frame(),
             "clips": clips, "counts": b.counts(), "plan": b.plan(),
             "reference_limit": pl.MAX_REFERENCES,
-            "spend": b.spend(),
+            "spend": b.spend(), "prices": self.prices(b),
             "running": runner is not None, "stage": runner.stage if runner else None,
             "stopping": bool(runner and runner.cancelled),
             "stop_reason": None if runner else (stop.get("text") or None),
@@ -744,7 +766,7 @@ class Core:
                         del self.runners[b.name]
 
         runner = pl.Runner(b, self.cfg.api_key, stage, make, check, emit,
-                           frame_credits=self.cfg.frame_credits)
+                           frame_credits=self.frame_price(b))
         with self.lock:
             if b.name in self.runners:
                 raise ApiError(409, "This batch is already working.")
@@ -1155,6 +1177,7 @@ def api_ui_asset(h, name):
 def api_bootstrap(h):
     return {"version": APP_VERSION, "app_name": APP_NAME, "config": h.core.cfg.public(),
             "defaults": pl.DEFAULT_SETTINGS, "image_defaults": pl.DEFAULT_IMAGE_SETTINGS,
+            "prices": pl.PRICES,
             "batches": h.core.summaries(), "update": h.core.update_state()}
 
 
@@ -1211,7 +1234,7 @@ def api_config(h):
     if "frame_credits" in body:
         value = str(body["frame_credits"]).strip()
         if value in ("", "0"):
-            cfg.frame_credits = DEFAULT_FRAME_CREDITS      # empty means "use the known price"
+            cfg.frame_credits = None            # empty means "use kie.ai's published prices"
         elif value.isdigit():
             cfg.frame_credits = int(value)
         else:

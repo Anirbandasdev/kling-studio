@@ -460,19 +460,69 @@ class ServerTests(unittest.TestCase):
         saved = pl.read_json(self.tmp / "home" / "config.json")
         self.assertEqual(saved["frame_credits"], 30)
 
-    def test_frame_credits_default_to_twelve_and_can_be_changed(self):
+    def test_the_published_prices_reach_the_page(self):
         _, boot = self.call("GET", "/api/bootstrap")
-        self.assertEqual(boot["config"]["frame_credits"], app.DEFAULT_FRAME_CREDITS)
-        self.assertEqual(app.DEFAULT_FRAME_CREDITS, 12)
+        self.assertEqual(boot["prices"]["frames"], {"1K": 8, "2K": 12, "4K": 18})
+        self.assertEqual(boot["prices"]["video_per_second"]["pro"], {"off": 18, "on": 27})
+        self.assertEqual(boot["prices"]["video_per_second"]["std"], {"off": 14, "on": 20})
+        self.assertEqual(boot["prices"]["credit_usd"], 0.005)
+        self.assertIsNone(boot["config"]["frame_credits"])        # nothing overridden
+
+    def test_a_frame_costs_what_its_resolution_costs(self):
+        for resolution, price in (("1K", 8), ("2K", 12), ("4K", 18)):
+            name = f"c21{resolution}".replace("K", "k")
+            self.make(name, [{"image": "a", "motion": "a"}])
+            self.call("POST", f"/api/batches/{name}/clip",
+                      {"clip": f"{name}_clip01", "image": "a"})
+            b = self.server.core.get_batch(name)
+            b.job["image_settings"] = {"aspect_ratio": "9:16", "resolution": resolution}
+            b.save_job()
+            _, d = self.call("GET", f"/api/batches/{name}")
+            self.assertEqual(d["prices"]["frame"], price, resolution)
+            d = self.run_stage(name, "frames")
+            self.assertEqual(d["spend"]["credits"], price, resolution)
+
+    def test_a_video_costs_by_the_second_by_mode_and_by_sound(self):
+        cases = [({"mode": "pro", "duration": "5", "sound": False}, 90),
+                 ({"mode": "pro", "duration": "5", "sound": True}, 135),
+                 ({"mode": "pro", "duration": "10", "sound": False}, 180),
+                 ({"mode": "std", "duration": "5", "sound": False}, 70),
+                 ({"mode": "std", "duration": "5", "sound": True}, 100),
+                 ({"mode": "4k", "duration": "5", "sound": False}, 335)]
+        for settings, price in cases:
+            self.assertEqual(pl.credits_per_video(settings), price, settings)
+        self.assertIsNone(pl.credits_per_video({"mode": "turbo", "duration": "5"}))
+
+        self.make("c220", [{"image": "a", "motion": "moves"}])
+        b = self.server.core.get_batch("c220")
+        b.job["settings"] = {**pl.DEFAULT_SETTINGS, "mode": "pro", "duration": "5", "sound": True}
+        b.job["image_settings"] = {"aspect_ratio": "9:16", "resolution": "1K"}
+        b.save_job()
+        self.run_stage("c220", "frames")
+        d = self.run_stage("c220", "videos")
+        self.assertEqual(d["prices"], {"frame": 8, "video": 135, "video_per_second": 27, "override": False})
+        self.assertEqual(d["spend"]["credits"], 8 + 135)
+
+    def test_a_price_you_set_yourself_wins(self):
+        self.make("c221", [{"image": "a", "motion": "a"}])
         _, r = self.call("POST", "/api/config", {"frame_credits": "14"})
         self.assertEqual(r["config"]["frame_credits"], 14)
-        _, r = self.call("POST", "/api/config", {"frame_credits": ""})     # empty goes back to 12
-        self.assertEqual(r["config"]["frame_credits"], 12)
-        self.assertEqual(app.Config().frame_credits, 12)
+        _, d = self.call("GET", "/api/batches/c221")
+        self.assertEqual((d["prices"]["frame"], d["prices"]["override"]), (14, True))
+        _, r = self.call("POST", "/api/config", {"frame_credits": ""})    # empty hands it back
+        self.assertIsNone(r["config"]["frame_credits"])
+        self.assertIsNone(app.Config().frame_credits)
+        _, d = self.call("GET", "/api/batches/c221")
+        self.assertEqual((d["prices"]["frame"], d["prices"]["override"]), (12, False))   # 2K
 
-    def test_an_older_config_with_no_price_still_gets_one(self):
+    def test_the_old_flat_price_is_not_mistaken_for_a_choice(self):
+        """every config written before the prices were known holds 12"""
+        pl.write_json(app.config_dir() / "config.json", {"api_key": "k", "frame_credits": 12})
+        self.assertIsNone(app.Config().frame_credits)
         pl.write_json(app.config_dir() / "config.json", {"api_key": "k", "frame_credits": None})
-        self.assertEqual(app.Config().frame_credits, 12)
+        self.assertIsNone(app.Config().frame_credits)
+        pl.write_json(app.config_dir() / "config.json", {"api_key": "k", "frame_credits": 30})
+        self.assertEqual(app.Config().frame_credits, 30)          # a real choice is kept
 
     def test_tutorial_is_remembered_once_it_is_seen(self):
         _, boot = self.call("GET", "/api/bootstrap")

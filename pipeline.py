@@ -245,14 +245,62 @@ def download_file(url, dest: Path, progress=None):
             time.sleep(RETRY_DELAY)
 
 
-def credits_per_video(settings):
-    """v1's estimate: 18 credits per second in pro mode; None for other modes"""
-    if settings.get("mode", "pro") != "pro":
+# ------------------------------------------------------------------ what kie.ai charges
+#
+# From kie.ai's published price list (checked 14 September 2026). One credit is
+# $0.005, so every price here is credits × half a cent.
+#
+# nano-banana-2 is charged per picture, by the resolution asked for. kling-3.0 is
+# charged per second of video, by the resolution its mode picks and by whether the
+# sound track is on:  std = 720p, pro = 1080p, 4K = 4K.
+
+CREDIT_USD = 0.005
+
+FRAME_CREDITS = {"1K": 8, "2K": 12, "4K": 18}
+FRAME_CREDITS_FALLBACK = 12                # an unknown resolution: price it as 2K
+
+VIDEO_CREDITS_PER_SECOND = {               # mode -> {sound off, sound on}
+    "std": {False: 14, True: 20},          # 720p
+    "pro": {False: 18, True: 27},          # 1080p
+    "4k": {False: 67, True: 67},           # 4K is the same price either way
+}
+
+PRICES = {                                 # handed to the page so it can show the same numbers
+    "credit_usd": CREDIT_USD,
+    "frames": dict(FRAME_CREDITS),
+    "frames_fallback": FRAME_CREDITS_FALLBACK,
+    "video_per_second": {mode: {"off": by_sound[False], "on": by_sound[True]}
+                         for mode, by_sound in VIDEO_CREDITS_PER_SECOND.items()},
+    "checked": "2026-09-14",
+}
+
+
+def credits_per_frame(image_settings=None):
+    """what one nano-banana-2 still costs, by resolution"""
+    resolution = str((image_settings or {}).get("resolution") or "").strip().upper()
+    return FRAME_CREDITS.get(resolution, FRAME_CREDITS_FALLBACK)
+
+
+def credits_per_video(settings=None):
+    """what one kling-3.0 clip costs: the per-second price for this mode and sound, × its length"""
+    settings = settings or {}
+    per_second = video_credits_per_second(settings)
+    if per_second is None:
         return None
     try:
-        return 18 * int(settings.get("duration", 5))
+        seconds = int(settings.get("duration", 5))
     except (TypeError, ValueError):
         return None
+    return per_second * seconds if seconds > 0 else None
+
+
+def video_credits_per_second(settings=None):
+    settings = settings or {}
+    mode = str(settings.get("mode") or "pro").strip().lower()
+    by_sound = VIDEO_CREDITS_PER_SECOND.get(mode)
+    if by_sound is None:
+        return None                        # a mode kie.ai hasn't published a price for
+    return by_sound[bool(settings.get("sound"))]
 
 
 def default_names(batch, count):
