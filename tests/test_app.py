@@ -483,6 +483,23 @@ class ServerTests(unittest.TestCase):
         _, boot = self.call("GET", "/api/bootstrap")     # and it survives a reload
         self.assertIs(boot["config"]["tutorial_done"], True)
 
+    def test_pictures_are_served_as_something_to_show_not_to_download(self):
+        """A download manager grabs anything that looks like a file to save — a .webp
+        or an .mp4 especially — and the page is left with a broken picture."""
+        self.make("c201")
+        _, d = self.call("POST", "/api/batches/c201/attach",
+                         {"kind": "reference", "filename": "look.webp",
+                          "data": base64.b64encode(png_bytes()).decode()})
+        file = d["references"][0]["file"]
+        for path in (f"/api/batches/c201/ref/{file}", "/api/ui/logo.png"):
+            with urlopen(Request(self.base + path, headers={"X-PK-Token": self.server.token})) as r:
+                self.assertEqual(r.headers.get("Content-Disposition"), "inline", path)
+        self.run_stage("c201", "frames")
+        with urlopen(Request(self.base + "/api/batches/c201/frame/c201_clip01",
+                             headers={"X-PK-Token": self.server.token})) as r:
+            self.assertEqual(r.headers.get("Content-Disposition"), "inline")
+            self.assertEqual(r.headers.get("Content-Type"), "image/png")
+
     def test_brand_art_is_served_from_a_short_allowlist(self):
         status, body = self.call("GET", "/api/ui/logo.png")
         self.assertEqual((status, body[1:4]), (200, b"PNG"))

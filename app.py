@@ -1110,6 +1110,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(length))
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Cache-Control", cache)
+            # download managers hook anything that looks like a file to save; a .webp
+            # or an .mp4 gets taken over and the page is left with a broken picture
+            self.send_header("Content-Disposition", "inline")
             if status == 206:
                 self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
             self.end_headers()

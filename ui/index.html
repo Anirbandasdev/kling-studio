@@ -741,6 +741,44 @@ function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTi
 // an element between mousedown and mouseup swallows the click.
 function setHTML(el, html) { if (el._html !== html) { el.innerHTML = html; el._html = html; } }
 
+// Reference pictures are fetched rather than left to <img src>. A download manager
+// (IDM and friends) hooks plain picture requests it doesn't recognise — a .webp is a
+// favourite — takes the response for itself and pops up a save box, and the page is
+// left showing a broken picture. Bytes we fetch ourselves can't be taken that way.
+const pictures = new Map();     // url -> blob: url, so a poll doesn't refetch
+
+// a replaced picture can land under the same name, so anything that changes the
+// references throws the copies away rather than showing yesterday's
+function forgetPictures() {
+  for (const blob of pictures.values()) URL.revokeObjectURL(blob);
+  pictures.clear();
+}
+async function paintPictures(root = document) {
+  for (const img of root.querySelectorAll("img[data-pic]")) {
+    const url = img.dataset.pic;
+    img.removeAttribute("data-pic");
+    try {
+      let shown = pictures.get(url);
+      if (!shown) {
+        const r = await fetch(url, { cache: "no-store" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        shown = URL.createObjectURL(await r.blob());
+        if (pictures.size > 80) {                    // keep the oldest few from piling up
+          const [old, blob] = pictures.entries().next().value;
+          URL.revokeObjectURL(blob);
+          pictures.delete(old);
+        }
+        pictures.set(url, shown);
+      }
+      img.src = shown;
+    } catch (e) {
+      img.removeAttribute("src");                    // an empty box beats a broken one
+      img.alt = "couldn't be loaded";
+      img.title = `This picture didn't load: ${e.message}`;
+    }
+  }
+}
+
 async function api(path, { method = "GET", body } = {}) {
   let res;
   try {
@@ -858,6 +896,7 @@ function pickPicture() {
 
 async function attach(batchName, payload) {
   const d = await api(`/api/batches/${enc(batchName)}/attach`, { method: "POST", body: payload });
+  forgetPictures();
   if (S.batchName === batchName) { S.batch = d; renderBatch(); }
   refreshBatches();
   return d;
@@ -1251,7 +1290,7 @@ function renderRefs() {
       thrown away — remove a few here, or clear the anchor frame, so you choose which ones count.</p>` : ""}
     <div class="refs-row">
       ${files.map(r => `<figure class="ref-thumb" data-look="${esc(r.file)}" title="Click to see it full size">
-        <img src="${withToken(`/api/batches/${enc(b.name)}/ref/${enc(r.file)}`)}" alt="">
+        <img data-pic="${withToken(`/api/batches/${enc(b.name)}/ref/${enc(r.file)}`)}" alt="">
         <button class="ref-x" data-remove="${esc(r.file)}" title="Remove this reference">${ICON.trash}</button></figure>`).join("")}
       ${paths.map(r => `<figure class="ref-thumb file" data-look-path="${esc(r.path)}" title="${esc(r.path)}">
         <span>${esc(r.path.split(/[\\/]/).pop())}</span>
@@ -1276,6 +1315,7 @@ function renderRefs() {
       </div>
     </div>
     ${waiting ? `<p class="hint">${plural(waiting, "clip")} also asked for a picture of its own — the big button opens them one at a time, and one picture can cover them all.</p>` : ""}`);
+  paintPictures(host);
 
   host.onclick = async e => {
     const rm = e.target.closest("[data-remove]");
@@ -1284,6 +1324,7 @@ function renderRefs() {
     if (rm) {
       try {
         S.batch = await api(`/api/batches/${enc(b.name)}/references`, { method: "POST", body: { remove: rm.dataset.remove } });
+        forgetPictures();
         renderBatch();
         toast("Reference removed", "success");
       } catch (err) { toast(err.message, "error"); }
@@ -1330,7 +1371,7 @@ function openDrawReference(b) {
         <textarea class="textarea" id="drawPrompt" rows="3" spellcheck="false" ${busy ? "disabled" : ""}
           placeholder="A portrait of the person, plain background, neutral expression — or the product on its own">${esc(a.prompt || "")}</textarea>
         <div class="hint">Describe the subject on its own, not a scene from your script.</div></label>
-      ${img || busy ? `<div class="draw-shot">${img ? `<img src="${esc(img)}" alt="">` : ""}
+      ${img || busy ? `<div class="draw-shot">${img ? `<img data-pic="${esc(img)}" alt="">` : ""}
         ${busy ? '<div class="working"><div class="spinner"></div><span>Drawing…</span></div>' : ""}</div>` : ""}
       ${a.error ? `<div class="note error" style="margin-top:14px">${esc(a.error)}</div>` : ""}`);
     const foot = $(".modal-foot", m.el);
@@ -1340,6 +1381,7 @@ function openDrawReference(b) {
          <button class="btn" data-draw="close">Close</button>
          <button class="btn" data-draw="generate">${a.file ? "Draw again" : "Draw it"}${frameCredits() ? ` · ≈ ${frameCredits()}` : ""}</button>
          ${a.file ? '<button class="btn btn-primary" data-draw="use">Keep it</button>' : ""}`;
+    paintPictures(m.el);
     if (busy) timer = setTimeout(() => pollBatch().then(paint), 1500);
   };
 
@@ -1638,7 +1680,7 @@ function referencePopup(clip, index, total) {
         ${pool.length ? `<div class="ref-pool">
           <div class="label">Pictures already in this batch</div>
           <div class="ref-strip">${pool.map(f => `<button class="ref-pick" data-file="${esc(f)}" title="${esc(f)}">
-            <img src="${withToken(`/api/batches/${enc(S.batch.name)}/ref/${enc(f)}`)}" alt=""></button>`).join("")}</div>
+            <img data-pic="${withToken(`/api/batches/${enc(S.batch.name)}/ref/${enc(f)}`)}" alt=""></button>`).join("")}</div>
         </div>` : ""}
         <div class="drop" id="refDrop"><b>Drop a picture here</b>or click to choose one (.png, .jpg, .webp)</div>
         <div class="picker" id="refPicker"></div>
@@ -1650,6 +1692,8 @@ function referencePopup(clip, index, total) {
         : [{ label: "Close", onClick: () => { m.close(); resolve("stop"); } }],
       onDismiss: () => resolve("stop"),
     });
+
+    paintPictures(m.el);
 
     // the clip picker: ticked boxes are exactly who gets this picture
     const picker = $("#refPicker", m.el);
@@ -2303,7 +2347,7 @@ function shotHTML(item, index) {
   const src = refSrc(item);
   const label = item.clip ? (item.waiting ? "not drawn yet" : "frame") : (item.path ? "on disk" : "picture");
   return `<button class="use-shot" data-shot="${index}" title="See it full size">${
-    src ? `<img src="${esc(src)}" alt="">` : esc(label)}</button>`;
+    src ? `<img data-pic="${esc(src)}" alt="">` : esc(label)}</button>`;
 }
 
 // one picture, as big as the window allows
@@ -2316,11 +2360,12 @@ function openReferenceViewer(item, extra = []) {
     title: item.label ? item.label.charAt(0).toUpperCase() + item.label.slice(1) : "Reference",
     sub: where,
     wide: true,
-    body: `<div class="viewer">${src ? `<img src="${esc(src)}" alt="">`
+    body: `<div class="viewer">${src ? `<img data-pic="${esc(src)}" alt="">`
       : '<p class="hint" style="padding:36px">There is nothing to show yet — this frame has not been drawn.</p>'}</div>`,
     actions: [...extra.map(a => ({ ...a, onClick: btn => a.onClick(btn, m) })),
               { label: "Close", kind: "primary", onClick: () => m.close() }],
   });
+  paintPictures(m.el);
   return m;
 }
 
@@ -2333,6 +2378,7 @@ function openBatchReference(b, file, path) {
     try {
       await attach(b.name, { kind: "reference", ...picture });            // the new one first
       S.batch = await api(`/api/batches/${enc(b.name)}/references`, { method: "POST", body: { remove: key } });
+      forgetPictures();
       renderBatch();
       m.close();
       toast("Reference replaced — every frame uses the new one", "success");
@@ -2346,6 +2392,7 @@ function openBatchReference(b, file, path) {
     { label: "Remove", kind: "danger", onClick: async (btn, modal) => {
       try {
         S.batch = await api(`/api/batches/${enc(b.name)}/references`, { method: "POST", body: { remove: key } });
+        forgetPictures();
         renderBatch();
         modal.close();
         toast("Reference removed", "success");
@@ -2399,6 +2446,7 @@ function openClipReferences(clipName) {
           c.reference_note ? `: ${esc(c.reference_note)}` : ""}.</p>` : "")
       + (!own && !running ? `<p class="hint" style="margin-top:14px">A picture added here goes to this clip only.
           For one that should be on every frame, use the References panel above.</p>` : ""));
+    paintPictures(m.el);
     const foot = $(".modal-foot", m.el);
     setHTML(foot, `${!own && !running ? '<button class="btn btn-primary" data-act="add">Give it a picture</button>' : ""}
       <button class="btn" data-act="close">Close</button>`);
