@@ -2212,6 +2212,8 @@ function openUpdate() {
       <div class="modal-foot" id="upFoot"></div></div>`;
 
   let timer = null;
+  let goodbye = false;      // the window has been asked to close
+  let stubborn = false;     // …and refused, so the user has to do it
   const close = () => {
     clearTimeout(timer);
     updateModal = null;
@@ -2227,7 +2229,8 @@ function openUpdate() {
     $("#upTitle", back).textContent = d.state === "ready" || working
       ? `Kling Studio ${d.version} is ready` : UPDATE_LABEL[d.state] || "Updates";
     $("#upSub", back).textContent = installing
-      ? "The app closes and reopens on its own. Give it a few seconds."
+      ? (stubborn ? "The new build is going in. This window is finished with — close it."
+                  : "This window closes and the new one opens on its own. Give it a few seconds.")
       : working ? "Downloading the new build, then checking it against the published checksum."
       : `You're on ${d.app_version}.`;
     const notes = (d.notes || []).map(n => `<li><span class="n green">${ICON.check}</span><span>${esc(n)}</span></li>`).join("");
@@ -2235,7 +2238,10 @@ function openUpdate() {
       ${notes ? `<ul class="tour-list" style="margin-top:0">${notes}</ul>` : '<p class="tour-p">No release notes were published with this one.</p>'}
       ${working ? `<div class="up-progress" style="margin-top:18px"><div class="progress"><i class="frames" style="width:${
         installing ? 100 : (d.progress || 0)}%"></i></div>
-        <div class="hint">${installing ? "Swapping the app over and restarting…" : `${d.progress || 0}% downloaded`}</div></div>` : ""}
+        <div class="hint">${installing
+          ? (stubborn ? "Kling Studio is restarting in a new window. You can close this one."
+                      : "Swapping the app over and restarting…")
+          : `${d.progress || 0}% downloaded`}</div></div>` : ""}
       ${d.error ? `<div class="note error" style="margin-top:16px">${esc(d.error)}</div>` : ""}
       ${!working && d.busy ? '<p class="modal-note">A batch is running, so the update has to wait. Let it finish, or stop it first.</p>' : ""}
       ${!working && !(d.can_install && d.has_download) ? `<p class="modal-note">${esc(
@@ -2250,6 +2256,13 @@ function openUpdate() {
          <button class="btn btn-primary" data-up="install"${d.busy || !d.can_install || !d.has_download ? " disabled" : ""}>Install and restart</button>`;
     if (installing) foot.innerHTML = "";
     if (working) timer = setTimeout(() => refreshUpdate(), 800);
+    // the swap can only start once this process is gone, and the restarted app opens
+    // a window of its own: this one has to go, or it sits there looking stuck at 100%
+    if (installing && !goodbye) {
+      goodbye = true;
+      setTimeout(() => { try { window.close(); } catch { /* the browser said no */ } }, 1400);
+      setTimeout(() => { stubborn = true; draw(); }, 3600);    // still here? then say so
+    }
   };
 
   back.addEventListener("click", async e => {

@@ -123,8 +123,48 @@ class DownloadTests(unittest.TestCase):
         self.assertIn("PID eq 4242", text)
         self.assertIn(f'move /y "{target}" "{target.with_suffix(".bak.exe")}"', text)
         self.assertIn(f'move /y "{new}" "{target}"', text)
-        self.assertIn(f'if not exist "{target}" move /y', text)   # rollback
-        self.assertIn('start "" ', text)
+        # the new build didn't land: put the old one back rather than leave nothing
+        self.assertIn(f'if not exist "{target}" goto restore', text)
+        self.assertIn(f'move /y "{target.with_suffix(".bak.exe")}" "{target}"', text)
+        self.assertIn(f'start "" "{target}"', text)
+
+    def test_the_swap_script_keeps_a_console_to_run_in(self):
+        """DETACHED_PROCESS leaves the script with no console at all, and the first
+        piped command (tasklist | findstr) then hangs forever: no swap, no restart."""
+        self.assertEqual(updater.SWAP_FLAGS & 0x00000008, 0, "DETACHED_PROCESS must not be set")
+        self.assertTrue(updater.SWAP_FLAGS & 0x08000000, "the console has to stay hidden")
+
+    @unittest.skipUnless(sys.platform == "win32", "the swap script is cmd")
+    def test_the_swap_really_swaps_once_the_app_has_gone(self):
+        import subprocess
+        import time
+        staging = self.tmp / "staging"
+        staging.mkdir()
+        target, new = self.tmp / "Kling Studio.exe", staging / "Kling Studio 9.9.9.exe"
+        target.write_bytes(b"OLDBUILD")
+        new.write_bytes(b"NEWBUILD")
+        # a process to stand in for the running app, and a target it is "holding"
+        holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(2.5)"])
+        try:
+            with mock.patch.object(updater, "staging_dir", lambda: staging), \
+                 mock.patch.object(updater, "can_self_install", lambda: True), \
+                 mock.patch.object(updater, "SWAP_SCRIPT", updater.SWAP_SCRIPT.replace(
+                     'start "" "{target}"', 'rem started')):        # don't launch anything
+                script = updater.apply_update(new, target=target, pid=holder.pid)
+            time.sleep(1.0)
+            self.assertEqual(target.read_bytes(), b"OLDBUILD", "must wait for the app to exit")
+            holder.wait(timeout=10)
+            end = time.time() + 20
+            while time.time() < end and target.read_bytes() != b"NEWBUILD":
+                time.sleep(0.25)
+        finally:
+            holder.kill()
+            holder.wait(timeout=5)
+        self.assertEqual(target.read_bytes(), b"NEWBUILD", "the new build never went in")
+        self.assertEqual(updater.rollback_path(target).read_bytes(), b"OLDBUILD")
+        self.assertFalse(script.exists(), "the script should tidy itself away")
+        self.assertIn("swapped in the new build",
+                      (staging / "update.log").read_text(encoding="utf-8", errors="replace"))
 
     def test_source_installs_refuse_to_swap_themselves(self):
         with mock.patch.object(updater, "can_self_install", lambda: False):

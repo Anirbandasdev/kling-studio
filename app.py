@@ -253,7 +253,8 @@ class Core:
         self.anchors = {}       # name -> thread drawing that batch's anchor
         self.last_ping = time.time()
         self.bye_at = 0.0
-        self.shutdown = None    # set by create_server, so an install can close the server
+        self.shutdown = None      # set by create_server, so an install can close the server
+        self.window_proc = None   # the browser showing the app, so an install can close it
         # state: idle | checking | current | ready | downloading | installing | error
         self.update = {"state": "idle", "checked": 0.0, "version": "", "notes": [], "page": "",
                        "url": "", "sha256": "", "size": 0, "progress": 0, "error": ""}
@@ -325,14 +326,38 @@ class Core:
             with self.lock:
                 self.update.update(state="ready", progress=0, error=f"Update failed: {e}")
             return
-        time.sleep(1.0)          # let the UI see "installing" before the window goes
+        # From here the swap script is waiting for this process to end, so getting out
+        # matters more than getting out tidily: every step is allowed to fail.
+        time.sleep(3.5)          # the page sees "installing", says so, and closes itself
+        self.close_window()      # and if the browser refused, close it from here
         if self.shutdown:
-            try:
-                self.shutdown()
-            except Exception:
-                pass
-        time.sleep(0.4)
-        os._exit(0)              # the swap script is waiting for this process to end
+            # shutdown() waits for the serving loop, which an odd connection could hold
+            # up; it runs on its own thread so a slow one can't strand the update
+            threading.Thread(target=self._quietly, args=(self.shutdown,), daemon=True).start()
+        time.sleep(0.6)
+        os._exit(0)
+
+    @staticmethod
+    def _quietly(fn):
+        try:
+            fn()
+        except Exception:                                       # noqa: BLE001 - best effort
+            pass
+
+    def close_window(self):
+        """Shut the app window before the swap, so the page can't sit there looking stuck.
+
+        The page closes itself when it can; this is the belt for the cases where a
+        browser refuses window.close(). Without it the old window stays on screen
+        beside the new one the restarted app opens.
+        """
+        proc = self.window_proc
+        if not proc or proc.poll() is not None:
+            return
+        try:
+            proc.terminate()
+        except Exception:                                       # noqa: BLE001 - best effort
+            pass
 
     # ---- logs
 
@@ -1490,6 +1515,7 @@ def main(argv=None):
         except OSError:
             pass  # without it, opening the app again just starts a second copy
         proc = open_window(url)
+        server.core.window_proc = proc
         threading.Thread(target=monitor, args=(server, proc), daemon=True).start()
         threading.Thread(target=update_watch, args=(server.core,), daemon=True).start()
         threading.Thread(target=collect_watch, args=(server.core,), daemon=True).start()

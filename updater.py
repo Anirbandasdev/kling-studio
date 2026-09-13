@@ -203,42 +203,79 @@ def _http_download(url, dest, progress=None):
 # ------------------------------------------------------------------ applying it
 
 SWAP_SCRIPT = """@echo off
-setlocal
-rem Waits for Kling Studio to exit, swaps the exe, restarts it, deletes itself.
+setlocal enableextensions
+rem Waits for Kling Studio to let go of its .exe, swaps the new build in, starts it
+rem again, then deletes itself. Everything it says goes into the log beside it.
+set "LOG={log}"
+echo [%date% %time%] waiting for process {pid} to exit> "%LOG%"
 set /a tries=0
 :wait
-tasklist /fi "PID eq {pid}" /nh 2>nul | findstr /i "{pid}" >nul || goto ready
 set /a tries+=1
-if %tries% gtr 90 goto ready
+if %tries% gtr 150 goto late
+tasklist /fi "PID eq {pid}" /nh 2>nul | findstr /i "{pid}" >nul || goto ready
 ping -n 2 127.0.0.1 >nul
 goto wait
+:late
+echo [%time%] it is still running after five minutes; trying anyway>> "%LOG%"
 :ready
 ping -n 2 127.0.0.1 >nul
 if exist "{backup}" del /q "{backup}"
+rem the file can stay locked for a moment after the process goes (antivirus, indexer)
+set /a moves=0
+:move
+set /a moves+=1
 move /y "{target}" "{backup}" >nul 2>&1
+if not exist "{target}" goto swap
+if %moves% gtr 20 goto locked
+ping -n 2 127.0.0.1 >nul
+goto move
+:swap
 move /y "{new}" "{target}" >nul 2>&1
-if not exist "{target}" move /y "{backup}" "{target}" >nul 2>&1
+if not exist "{target}" goto restore
+echo [%time%] swapped in the new build>> "%LOG%"
+goto restart
+:restore
+echo [%time%] the new build would not move in; putting the old one back>> "%LOG%"
+move /y "{backup}" "{target}" >nul 2>&1
+goto restart
+:locked
+echo [%time%] the old exe is still locked, so nothing was changed>> "%LOG%"
+:restart
+echo [%time%] starting "{target}">> "%LOG%"
 start "" "{target}"
 del /q "%~f0"
 """
 
 
+def swap_log():
+    return staging_dir() / "update.log"
+
+
 def write_swap_script(new_file: Path, target: Path, pid: int):
     script = staging_dir() / f"swap-{pid}-{int(time.time())}.cmd"
-    script.write_text(SWAP_SCRIPT.format(pid=pid, new=new_file, target=target,
+    script.write_text(SWAP_SCRIPT.format(pid=pid, new=new_file, target=target, log=swap_log(),
                                          backup=target.with_suffix(".bak.exe")), encoding="utf-8")
     return script
 
 
+# CREATE_NO_WINDOW gives the script its own hidden console, which tasklist, findstr
+# and ping all need. DETACHED_PROCESS must not be added: with no console at all the
+# very first piped command hangs and the update never happens.
+SWAP_FLAGS = 0x08000000 | 0x00000200            # NO_WINDOW | NEW_PROCESS_GROUP
+
+
 def apply_update(new_file: Path, target: Path = None, pid: int = None):
-    """Hand the swap to a detached script and return; the caller then exits."""
+    """Hand the swap to a script of its own and return; the caller then exits.
+
+    The script outlives this process: Windows does not kill children when a parent
+    goes, and its own process group keeps it clear of anything aimed at ours.
+    """
     if not can_self_install():
         raise UpdateError("This copy runs from Python, so it can't replace itself. "
                           "Download the new build and copy it over the old one.")
     target = Path(target or current_exe())
     script = write_swap_script(Path(new_file), target, pid or os.getpid())
-    flags = 0x00000008 | 0x00000200 | 0x08000000        # DETACHED | NEW_GROUP | NO_WINDOW
-    subprocess.Popen(["cmd", "/c", str(script)], creationflags=flags, close_fds=True,
+    subprocess.Popen(["cmd", "/c", str(script)], creationflags=SWAP_FLAGS, close_fds=True,
                      cwd=str(staging_dir()))
     return script
 
