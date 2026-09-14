@@ -140,6 +140,23 @@ def gh_exe():
     return next((str(g) for g in guesses if g.is_file()), None)
 
 
+def clean_notes(raw):
+    """Tidy the release notes, refusing a set that was clearly split on spaces.
+
+    Quoting is lost between shells often enough that --notes arrives as one word per
+    note. 3.9.1 shipped that way, and the app's update dialog — which is where anyone
+    actually reads these — showed a checklist with "the" on a line of its own. Two or
+    three deliberate one-word notes ("Faster", "Bug fixes") are still fine.
+    """
+    notes = [str(n).strip() for n in raw if str(n).strip()]
+    loose = [n for n in notes if " " not in n]
+    if len(notes) > 2 and len(loose) > len(notes) / 2:
+        raise SystemExit(f"--notes looks like it was split on spaces: {notes[:6]}…\n"
+                         "Each note should be a whole sentence. Quote them, and remember\n"
+                         "that a shell inside another shell needs them to survive both.")
+    return notes
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="publish", description="Publish a Kling Studio update.")
     ap.add_argument("version", help="the new version, e.g. 3.1.0")
@@ -149,6 +166,7 @@ def main(argv=None):
     ap.add_argument("--no-upload", action="store_true", help="write the files but don't touch GitHub")
     args = ap.parse_args(argv)
 
+    notes = clean_notes(args.notes)
     version, now = args.version.strip(), current_version()
     updater.parse_version(version)
     if not updater.is_newer(version, now):
@@ -172,7 +190,7 @@ def main(argv=None):
     tag = f"v{version}"
     manifest = {
         "version": version,
-        "notes": [n.strip() for n in args.notes if n.strip()] or ["Small fixes and improvements."],
+        "notes": notes or ["Small fixes and improvements."],
         "page": f"https://github.com/{args.repo}/releases/tag/{tag}",
         "windows": {
             "url": f"https://github.com/{args.repo}/releases/download/{tag}/{asset.name}",

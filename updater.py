@@ -66,7 +66,7 @@ def current_exe():
 # ------------------------------------------------------------------ the manifest
 
 def scheme_of(text):
-    """urlparse reads "C:\dir" as scheme "c", so a one-letter scheme means a drive."""
+    r"""urlparse reads "C:\dir" as scheme "c", so a one-letter scheme means a drive."""
     s = urlparse(str(text or "")).scheme.lower()
     return s if len(s) > 1 else ""
 
@@ -242,6 +242,13 @@ goto restart
 echo [%time%] the old exe is still locked, so nothing was changed>> "%LOG%"
 :restart
 echo [%time%] starting "{target}">> "%LOG%"
+rem This script inherited PyInstaller's private _PYI_* variables from the app that
+rem wrote it, and would hand them to the new build, which then takes itself for a
+rem child process of this script and checks that its parent is the same program.
+rem By then the script has exited, so the check fails and the new build dies with
+rem "Security validation failure" instead of starting. This tells the bootloader to
+rem start clean; it is PyInstaller's own way of launching a fresh copy of an app.
+set "PYINSTALLER_RESET_ENVIRONMENT=1"
 start "" "{target}"
 del /q "%~f0"
 """

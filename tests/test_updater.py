@@ -164,6 +164,11 @@ class DownloadTests(unittest.TestCase):
             end = time.time() + 45      # the script polls, then retries the rename a few times
             while time.time() < end and not landed():
                 time.sleep(0.25)
+            # the new build landing is not the end of the script: it still has to start
+            # the app and delete itself, so give those their own wait rather than
+            # racing them
+            while time.time() < end and script.exists():
+                time.sleep(0.25)
         finally:
             holder.kill()
             holder.wait(timeout=5)
@@ -181,3 +186,21 @@ class DownloadTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SwapScriptTest(unittest.TestCase):
+    def test_the_new_build_is_started_with_a_clean_pyinstaller_environment(self):
+        """Without this the updated app dies instead of starting.
+
+        The script inherits PyInstaller's private _PYI_* variables from the app that
+        wrote it and passes them to the new build, which then takes itself for a child
+        process of the script and checks that its parent is the same program. The
+        script has exited by then, so the check fails and the app shows "Security
+        validation failure" rather than opening. PYINSTALLER_RESET_ENVIRONMENT is
+        PyInstaller's own way of saying "this is a fresh copy, start clean".
+        """
+        script = updater.SWAP_SCRIPT
+        self.assertIn("PYINSTALLER_RESET_ENVIRONMENT=1", script)
+        self.assertLess(script.index("PYINSTALLER_RESET_ENVIRONMENT"),
+                        script.index('start "" "{target}"'),
+                        "the variable has to be set before the new build is started")

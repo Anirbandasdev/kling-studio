@@ -79,6 +79,27 @@ class SourceTest(unittest.TestCase):
         stray = sorted({b for b in raw if b < 32 and b not in (9, 10, 13)})
         self.assertEqual(stray, [], f"control bytes in publish.py: {stray}")
 
+class NotesTest(unittest.TestCase):
+    """The notes are what people read in the app's update dialog."""
+
+    # Deliberately the pure function, never publish.main: main() bumps the version,
+    # commits and pushes. An earlier version of this test called it and put a
+    # "Release 9.9.9" commit on the remote.
+    def publish(self, *notes):
+        return publish.clean_notes(notes)
+
+    def test_notes_split_into_single_words_are_refused(self):
+        # 3.9.1 shipped with its notes one word per line, because quoting was lost
+        # between two shells. The dialog rendered a checklist of the word "the".
+        split = "Fixed the app shutting down while a window was still open".split()
+        with self.assertRaises(SystemExit) as caught:
+            self.publish(*split)
+        self.assertIn("split on spaces", str(caught.exception))
+
+    def test_a_couple_of_short_notes_are_still_allowed(self):
+        # "Faster" and "Bug fixes" are single words but plainly deliberate
+        self.assertEqual(self.publish("Faster", "Bug fixes"), ["Faster", "Bug fixes"])
+
 
 if __name__ == "__main__":
     unittest.main()
