@@ -73,16 +73,17 @@ def bump(version):
     for doc in (ROOT / "docs").glob("handbook*.html"):
         text = doc.read_text(encoding="utf-8")
         fixed = text
-        for pattern in (r"(?<=version )\d+\.\d+\.\d+",
+        for pattern in (r"(?<=version )\d+\.\d+\.\d+",
                         r"(?<=KlingStudio-Setup-)\d+\.\d+\.\d+(?=\.exe)",
                         r"(?<=KlingStudio-)\d+\.\d+\.\d+(?=-mac\.)",
                         r"(?<=Kling Studio )\d+\.\d+\.\d+"):
             fixed = re.sub(pattern, version, fixed)
         if fixed != text:
             doc.write_text(fixed, encoding="utf-8")
-            touched.append(doc.name)
+            touched.append(doc.relative_to(ROOT).as_posix())
     print(f"  version   {version} written into app.py and installer.iss"
-          + (f" and {', '.join(touched)}" if touched else ""))
+          + (f" and {', '.join(Path(t).name for t in touched)}" if touched else ""))
+    return touched
 
 
 def build():
@@ -99,17 +100,22 @@ def git(*args, check=True):
     return r.stdout.strip()
 
 
-def commit_the_bump(version):
+def commit_the_bump(version, docs=()):
     """Commit and push just the version bump, so the tag lands on the built code.
 
     Without this the release tag points at whatever was already on the remote, and
     the installers CI builds from that tag carry the previous version number.
+
+    Every file bump() rewrote goes in, the handbooks included — staging only app.py
+    and installer.iss leaves the docs' version strings dangling in the working tree
+    after each release, which is how they quietly drift out of step.
     """
     if not (ROOT / ".git").exists() or not shutil.which("git"):
         print("  git       not a repo, so the tag will point at whatever is on the remote")
         return None
-    if git("status", "--porcelain", "app.py", "installer.iss"):
-        git("add", "app.py", "installer.iss")
+    files = ["app.py", "installer.iss", *docs]
+    if git("status", "--porcelain", *files):
+        git("add", *files)
         git("commit", "-m", f"Release {version}")
         print(f"  git       committed the bump to {version}")
     else:
@@ -149,10 +155,10 @@ def main(argv=None):
         sys.exit(f"{version} is not newer than the current {now}. Pick a higher version.")
 
     print(f"Publishing Kling Studio {version} (from {now})")
-    bump(version)
+    docs = bump(version)
     if not args.no_build:
         build()
-    commit = commit_the_bump(version)
+    commit = commit_the_bump(version, docs)
 
     built = ROOT / "dist" / "Kling Studio.exe"
     if not built.is_file():
