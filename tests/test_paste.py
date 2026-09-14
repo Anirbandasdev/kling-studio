@@ -63,7 +63,8 @@ class MasterBlockTests(unittest.TestCase):
         r = paste.parse_master("batch: c152\nClip 1\nimage: a lamp on a table\n"
                                "lit from the left\nmotion: the flame\nflickers gently")
         self.assertEqual(r["clips"], [{"image": "a lamp on a table lit from the left",
-                                       "motion": "the flame flickers gently", "ref": None}])
+                                       "motion": "the flame flickers gently", "ref": None,
+                                       "duration": None, "end": None}])
 
     def test_counts_and_missing_prompts_are_warnings_not_guesses(self):
         r = paste.parse_master("batch: c153\nimage prompts:\n1. a\n2. b\n3. c\nmotion prompts:\n1. x\n2. y")

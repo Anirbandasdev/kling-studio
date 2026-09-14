@@ -28,8 +28,44 @@ KIE_API = "https://api.kie.ai/api/v1"
 CREATE_URL = f"{KIE_API}/jobs/createTask"
 DETAIL_URL = f"{KIE_API}/jobs/recordInfo"
 UPLOAD_URL = "https://kieai.redpandaai.co/api/file-base64-upload"
-VIDEO_MODEL = "kling-3.0/video"
+VIDEO_MODEL = "kling-3.0/video"          # the default; settings can pick another
 IMAGE_MODEL = "nano-banana-2"
+
+# Kling animates a still; Veo speaks. A talking-head ad needs lip-sync, which kling
+# cannot do, so the model is a per-batch setting rather than a constant. Veo's tier
+# is chosen by the model id itself — there is no quality parameter.
+VEO_TIERS = {"fast": "veo3_fast", "quality": "veo-3-1", "lite": "veo3_lite"}
+VEO_SECONDS = (4, 6, 8)                  # veo takes only these three lengths
+VEO_RESOLUTIONS = ("720p", "1080p", "4k")
+CLIP_SECONDS_MIN, CLIP_SECONDS_MAX = 3, 15      # what kling-3.0 accepts per clip
+
+
+def veo_seconds(seconds):
+    """veo only renders 4, 6 or 8 seconds, so anything else snaps to the nearest"""
+    try:
+        wanted = int(float(seconds))
+    except (TypeError, ValueError):
+        return VEO_SECONDS[-1]
+    return min(VEO_SECONDS, key=lambda s: (abs(s - wanted), s))
+
+
+def is_veo(settings=None):
+    return str((settings or {}).get("model") or "kling").strip().lower().startswith("veo")
+
+
+def veo_tier(settings=None):
+    return str((settings or {}).get("veo_tier") or "fast").strip().lower()
+
+
+def veo_resolution(settings=None):
+    res = str((settings or {}).get("veo_resolution") or "1080p").strip().lower()
+    return res if res in VEO_RESOLUTIONS else "1080p"
+
+
+def video_model(settings=None):
+    if not is_veo(settings):
+        return VIDEO_MODEL
+    return VEO_TIERS.get(veo_tier(settings), VEO_TIERS["fast"])
 
 IMG_EXT = {".png", ".jpg", ".jpeg", ".webp"}
 VIDEO_SUFFIXES = (".mp4",)
@@ -43,7 +79,8 @@ DOWNLOAD_ATTEMPTS = 4
 RETRY_DELAY = 2
 MAX_REFERENCES = 14       # nano-banana-2 accepts up to 14 image inputs
 
-DEFAULT_SETTINGS = {"aspect_ratio": "9:16", "duration": "5", "mode": "pro", "sound": False}
+DEFAULT_SETTINGS = {"aspect_ratio": "9:16", "duration": "5", "mode": "pro", "sound": False,
+                    "model": "kling", "veo_tier": "fast", "veo_resolution": "1080p"}
 DEFAULT_IMAGE_SETTINGS = {"aspect_ratio": "9:16", "resolution": "1K"}   # kie.ai's own default, and the cheapest
 BATCH_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
 CLIP_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
@@ -110,19 +147,43 @@ def submit_image(prompt, image_settings, reference_urls, key):
     return _task_id(res, "createTask")
 
 
-def submit_video(image_url, prompt, st, key):
-    res = _req(CREATE_URL, "POST", {
-        "model": VIDEO_MODEL,
-        "input": {
-            "prompt": prompt,
-            "image_urls": [image_url],
-            "duration": str(st.get("duration", "5")),
-            "aspect_ratio": st.get("aspect_ratio", "9:16"),
-            "mode": st.get("mode", "pro"),
-            "sound": bool(st.get("sound", False)),
-            "multi_shots": False,
-        },
-    }, key)
+def submit_video(image_urls, prompt, st, key, seconds=None):
+    """Animate one still, or morph between a pair.
+
+    image_urls takes one or two frames. With two, element 0 is the clip's literal
+    first frame and element 1 its literal last, so a clip that ends on the next
+    clip's opening frame joins it invisibly. Both kling-3.0 and veo-3-1 read the
+    pair the same way; everything else about their payloads differs.
+    """
+    urls = [image_urls] if isinstance(image_urls, str) else list(image_urls)[:2]
+    seconds = seconds or st.get("duration", "5")
+    model = video_model(st)
+    if is_veo(st):
+        res = _req(CREATE_URL, "POST", {
+            "model": model,
+            "input": {
+                "prompt": prompt,
+                "image_urls": urls,
+                "aspect_ratio": st.get("aspect_ratio", "9:16"),
+                "resolution": veo_resolution(st),
+                "duration": veo_seconds(seconds),     # veo takes 4, 6 or 8 and nothing else
+                # one image animates it, two make the second the last frame
+                "generation_type": "FIRST_AND_LAST_FRAMES_2_VIDEO",
+            },
+        }, key)
+    else:
+        res = _req(CREATE_URL, "POST", {
+            "model": model,
+            "input": {
+                "prompt": prompt,
+                "image_urls": urls,
+                "duration": str(seconds),
+                "aspect_ratio": st.get("aspect_ratio", "9:16"),
+                "mode": st.get("mode", "pro"),
+                "sound": bool(st.get("sound", False)),
+                "multi_shots": False,
+            },
+        }, key)
     return _task_id(res, "createTask")
 
 
@@ -282,6 +343,14 @@ CREDIT_USD = 0.005
 FRAME_CREDITS = {"1K": 8, "2K": 12, "4K": 18}
 FRAME_CREDITS_FALLBACK = 12                # a resolution we don't know: quote the usual
 
+# veo is billed per clip by tier and resolution, not per second — its length makes no
+# difference to the price. These are kie's image-to-video rows.
+VEO_CREDITS = {
+    "fast":    {"720p": 60,  "1080p": 65,  "4k": 180},
+    "quality": {"720p": 250, "1080p": 255, "4k": 370},
+    "lite":    {"720p": 30,  "1080p": 35,  "4k": 150},
+}
+
 VIDEO_CREDITS_PER_SECOND = {               # mode -> {sound off, sound on}
     "std": {False: 14, True: 20},          # 720p
     "pro": {False: 18, True: 27},          # 1080p
@@ -294,6 +363,8 @@ PRICES = {                                 # handed to the page so it can show t
     "frames_fallback": FRAME_CREDITS_FALLBACK,
     "video_per_second": {mode: {"off": by_sound[False], "on": by_sound[True]}
                          for mode, by_sound in VIDEO_CREDITS_PER_SECOND.items()},
+    "video_per_clip": dict(VEO_CREDITS),       # veo bills per clip, whatever its length
+    "clip_seconds": {"min": CLIP_SECONDS_MIN, "max": CLIP_SECONDS_MAX},
     "checked": "2026-09-14",
 }
 
@@ -307,7 +378,8 @@ def frame_signature(image_settings=None):
 def video_signature(settings=None):
     """what a video's price depends on"""
     s = settings or {}
-    return (f"{str(s.get('mode') or 'pro').strip().lower()}"
+    return (f"{str(s.get('model') or 'kling').strip().lower()}"
+            f"/{str(s.get('mode') or 'pro').strip().lower()}"
             f"/{s.get('duration', DEFAULT_SETTINGS['duration'])}/{1 if s.get('sound') else 0}")
 
 
@@ -318,21 +390,30 @@ def credits_per_frame(image_settings=None):
     return FRAME_CREDITS.get(resolution, FRAME_CREDITS_FALLBACK)
 
 
-def credits_per_video(settings=None):
-    """what one kling-3.0 clip costs: the per-second price for this mode and sound, × its length"""
+def credits_per_video(settings=None, seconds=None):
+    """What one clip costs.
+
+    kling is priced per second, so its clips cost what their length costs. veo is
+    priced per video by tier, so length makes no difference to it.
+    """
     settings = settings or {}
+    if is_veo(settings):
+        return VEO_CREDITS.get(veo_tier(settings), {}).get(veo_resolution(settings))
     per_second = video_credits_per_second(settings)
     if per_second is None:
         return None
-    try:
-        seconds = int(settings.get("duration", 5))
-    except (TypeError, ValueError):
-        return None
-    return per_second * seconds if seconds > 0 else None
+    if seconds is None:
+        try:
+            seconds = int(settings.get("duration", 5))
+        except (TypeError, ValueError):
+            return None
+    return per_second * int(seconds) if int(seconds) > 0 else None
 
 
 def video_credits_per_second(settings=None):
     settings = settings or {}
+    if is_veo(settings):
+        return None                        # veo is billed by the clip, not by the second
     mode = str(settings.get("mode") or "pro").strip().lower()
     by_sound = VIDEO_CREDITS_PER_SECOND.get(mode)
     if by_sound is None:
@@ -402,7 +483,8 @@ class Batch:
             "image_settings": {**DEFAULT_IMAGE_SETTINGS, **(image_settings or {})},
             "references": list(references or []),
             "clips": [{"name": n, "image": c.get("image", ""), "motion": c.get("motion", ""),
-                       "ref": c.get("ref")} for n, c in zip(names, clips)],
+                       "ref": c.get("ref"), "duration": c.get("duration"), "end": c.get("end")}
+                      for n, c in zip(names, clips)],
             "created": time.strftime("%Y-%m-%d %H:%M:%S"),
             "version": 3,
         })
@@ -622,6 +704,40 @@ class Batch:
     def clip(self, name):
         return next((c for c in self.clips() if c["name"] == name), None)
 
+    def clip_seconds(self, name):
+        """how long this clip runs: its own length if the script measured one, else the
+        batch default. Timing each clip to its narration line is what makes the cuts
+        land on the voiceover without any correction afterwards."""
+        settings = {**DEFAULT_SETTINGS, **(self.job.get("settings") or {})}
+        raw = (self.clip(name) or {}).get("duration") or settings.get("duration", "5")
+        try:
+            seconds = int(float(raw))
+        except (TypeError, ValueError):
+            seconds = int(DEFAULT_SETTINGS["duration"])
+        if is_veo(settings):
+            return veo_seconds(seconds)
+        return max(CLIP_SECONDS_MIN, min(CLIP_SECONDS_MAX, seconds))
+
+    def end_frame_for(self, name):
+        """the clip whose frame is this clip's last frame, or None for a single-frame clip.
+
+        "next" means the clip after this one, which is the common case: every clip ends
+        on the frame the following one opens with, so the joins disappear. The last clip
+        has no successor and simply holds its own frame.
+        """
+        end = (self.clip(name) or {}).get("end")
+        if not end:
+            return None
+        clips = self.clips()
+        index = self.clip_index(name)
+        if str(end).strip().lower() == "next":
+            return clips[index + 1]["name"] if index is not None and index + 1 < len(clips) else None
+        try:
+            n = int(end)
+        except (TypeError, ValueError):
+            return None
+        return clips[n - 1]["name"] if 0 < n <= len(clips) else None
+
     def clip_index(self, name):
         return next((i for i, c in enumerate(self.clips()) if c["name"] == name), None)
 
@@ -834,6 +950,9 @@ class Runner(threading.Thread):
 
     def _reference_ready(self, name):
         """a clip that copies another clip's frame can only be sent once that frame exists"""
+        if self.stage == "videos":
+            end = self.batch.end_frame_for(name)
+            return not end or self.batch.frame_ready(end)
         lead = self.batch.anchor_frame_name()
         if lead and lead != name and not self.batch.frame_ready(lead):
             return False
@@ -912,8 +1031,15 @@ class Runner(threading.Thread):
                              "references_dropped": over if over > 0 else None}
                 else:
                     urls = [self._upload(b.frame_path(name))]
-                    tid = submit_video(urls[0], clip["motion"], b.job.get("settings", {}), self.api_key)
-                    extra = {}
+                    end = b.end_frame_for(name)
+                    if end:
+                        if not b.frame_ready(end):
+                            raise RuntimeError(f"ends on {end}'s frame, and that frame isn't ready")
+                        urls.append(self._upload(b.frame_path(end)))
+                    seconds = b.clip_seconds(name)
+                    tid = submit_video(urls, clip["motion"], b.job.get("settings", {}),
+                                       self.api_key, seconds=seconds)
+                    extra = {"seconds": seconds, "ends_on": end or None}
             except Exception as e:
                 self._set(name, status="failed", stage="submit", error=str(e))
                 self._log(f"{name}: {self.stage[:-1]} could not be sent: {e}", "error")

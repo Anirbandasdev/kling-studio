@@ -65,7 +65,24 @@ def bump(version):
         t = iss.read_text(encoding="utf-8")
         iss.write_text(re.sub(r'#define AppVersion "[^"]+"', f'#define AppVersion "{version}"', t, count=1),
                        encoding="utf-8")
-    print(f"  version   {version} written into app.py and installer.iss")
+    # The handbook names the installer files and carries a version badge; left alone it
+    # goes stale one release at a time until it is telling the reader to look for a
+    # download that no longer exists. Match only where a version can appear — a bare
+    # \d+.\d+.\d+ would rewrite the SVG path coordinates all over that document.
+    touched = []
+    for doc in (ROOT / "docs").glob("handbook*.html"):
+        text = doc.read_text(encoding="utf-8")
+        fixed = text
+        for pattern in (r"(?<=version )\d+\.\d+\.\d+",
+                        r"(?<=KlingStudio-Setup-)\d+\.\d+\.\d+(?=\.exe)",
+                        r"(?<=KlingStudio-)\d+\.\d+\.\d+(?=-mac\.)",
+                        r"(?<=Kling Studio )\d+\.\d+\.\d+"):
+            fixed = re.sub(pattern, version, fixed)
+        if fixed != text:
+            doc.write_text(fixed, encoding="utf-8")
+            touched.append(doc.name)
+    print(f"  version   {version} written into app.py and installer.iss"
+          + (f" and {', '.join(touched)}" if touched else ""))
 
 
 def build():

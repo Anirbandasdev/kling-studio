@@ -738,6 +738,138 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(d["anchor"]["status"], "ready")
         self.assertEqual((d["spend"]["references"], d["spend"]["credits"]), (1, 12))
 
+    def test_a_picture_can_be_taken_back_off_a_clip(self):
+        self.make("c240")
+        body = {"kind": "frame", "clip": "c240_clip01", "filename": "mine.png",
+                "data": base64.b64encode(png_bytes()).decode()}
+        _, d = self.call("POST", "/api/batches/c240/attach", body)
+        self.assertTrue(d["clips"][0]["frame"]["ready"])
+        self.assertEqual(d["clips"][0]["frame"]["source"], "dropped")
+        frames = self.tmp / "out" / "c240" / "frames"
+        self.assertTrue(list(frames.glob("c240_clip01.*")))
+
+        _, d = self.call("POST", "/api/batches/c240/clip", {"clip": "c240_clip01", "frame": None})
+        self.assertFalse(d["clips"][0]["frame"]["ready"])
+        self.assertEqual(d["clips"][0]["frame"]["status"], "pending")
+        self.assertEqual(list(frames.glob("c240_clip01.*")), [], "the file goes too")
+        self.assertIn("c240_clip01", d["plan"]["frames_make"], "it can be drawn again")
+        self.assertTrue(any("picture removed" in l["text"] for l in d["log"]))
+
+        status, err = self.call("POST", "/api/batches/c240/clip",
+                                {"clip": "c240_clip01", "frame": None})
+        self.assertEqual(status, 400, err)         # nothing left to remove
+
+    def test_removing_a_frame_keeps_the_video_it_made(self):
+        """the clip was paid for separately and the file is still good"""
+        self.make("c241")
+        self.run_stage("c241", "frames")
+        d = self.run_stage("c241", "videos")
+        self.assertTrue(d["clips"][0]["video"]["ready"])
+        _, d = self.call("POST", "/api/batches/c241/clip", {"clip": "c241_clip01", "frame": None})
+        self.assertFalse(d["clips"][0]["frame"]["ready"])
+        self.assertTrue(d["clips"][0]["video"]["ready"])
+        self.assertTrue((self.tmp / "out" / "c241" / "videos" / "c241_clip01.mp4").is_file())
+
+    # ---- clip length and end frames
+
+    def test_a_clip_runs_at_its_own_length(self):
+        clips = [{"image": "a", "motion": "a", "duration": 7},
+                 {"image": "b", "motion": "b", "duration": 3},
+                 {"image": "c", "motion": "c"}]                      # falls back to the batch
+        _, d = self.call("POST", "/api/batches", {"name": "c230", "clips": clips,
+                                                  "settings": {"duration": "5", "mode": "pro"}})
+        self.assertEqual([c["seconds"] for c in d["clips"]], [7, 3, 5])
+        self.assertEqual([c["video_credits"] for c in d["clips"]], [126, 54, 90])   # 18/s
+
+        self.run_stage("c230", "frames")
+        d = self.run_stage("c230", "videos")
+        self.assertEqual([v["seconds"] for v in self.kie.videos], [7, 3, 5])
+        self.assertEqual([v["settings"]["duration"] for v in self.kie.videos], ["5", "5", "5"])
+        self.assertEqual(d["spend"]["credits"], 3 * 8 + 126 + 54 + 90)   # 1K frames, then the clips
+
+    def test_a_length_outside_what_kie_takes_is_refused(self):
+        for bad in (2, 16, "soon"):
+            status, err = self.call("POST", "/api/batches",
+                                    {"name": "c231", "clips": [{"image": "a", "motion": "a",
+                                                                "duration": bad}]})
+            self.assertEqual(status, 400, bad)
+            self.assertTrue("seconds" in err["error"] or "3" in err["error"], err)
+
+    def test_a_clip_ends_on_the_next_clips_frame(self):
+        clips = [{"image": "a", "motion": "a", "end": "next"},
+                 {"image": "b", "motion": "b", "end": 3},
+                 {"image": "c", "motion": "c"}]                      # the last one holds its own
+        _, d = self.call("POST", "/api/batches", {"name": "c232", "clips": clips})
+        names = [c["name"] for c in d["clips"]]
+        self.assertEqual([c["ends_on"] for c in d["clips"]], [names[1], names[2], None])
+
+        self.run_stage("c232", "frames")
+        self.run_stage("c232", "videos")
+        sent = [v["image_urls"] for v in self.kie.videos]
+        self.assertEqual(len(sent[0]), 2, "a chained clip sends first and last frames")
+        self.assertTrue(sent[0][0].endswith("c232_clip01.png"))
+        self.assertTrue(sent[0][1].endswith("c232_clip02.png"))
+        self.assertTrue(sent[1][1].endswith("c232_clip03.png"))
+        self.assertEqual(len(sent[2]), 1, "the last clip has no successor to end on")
+
+    def test_a_clip_waits_for_the_frame_it_ends_on(self):
+        clips = [{"image": "a", "motion": "a", "end": 2}, {"image": "b", "motion": "b"}]
+        _, d = self.call("POST", "/api/batches", {"name": "c233", "clips": clips})
+        names = [c["name"] for c in d["clips"]]
+        self.run_stage("c233", "frames", redo=[names[0]])            # only clip 1 has a frame
+        _, d = self.call("GET", "/api/batches/c233")
+        self.assertEqual(d["plan"]["videos_make"], [names[0]])       # clip 2 has no frame yet
+
+        d = self.run_stage("c233", "videos")
+        self.assertEqual(d["clips"][0]["video"]["status"], "failed")
+        self.assertIn("isn't ready", d["clips"][0]["video"]["error"])
+        self.assertEqual(self.kie.videos, [], "nothing was sent, so nothing was charged")
+
+    def test_the_anchor_prompt_travels_with_the_batch(self):
+        _, d = self.call("POST", "/api/batches", {
+            "name": "c234", "clips": [{"image": "a", "motion": "a"}],
+            "anchor": "a weathered fisherman, sixties, salt-white beard"})
+        self.assertEqual(d["anchor"]["prompt"], "a weathered fisherman, sixties, salt-white beard")
+        lines = ["batch: c235", "anchor: the same fisherman", "",
+                 "1.", "image: a net", "motion: it sways", "duration: 6", "end: next"]
+        _, parsed = self.call("POST", "/api/parse", {"text": chr(10).join(lines)})
+        self.assertEqual(parsed["anchor"], "the same fisherman")
+        self.assertEqual(parsed["clips"][0]["duration"], 6)
+        self.assertEqual(parsed["clips"][0]["end"], "next")
+
+    def test_veo_is_a_different_model_priced_a_different_way(self):
+        """kling cannot lip-sync, so a talking-head ad has to go to veo — which bills
+        per clip by tier rather than per second"""
+        self.assertEqual(pl.video_model({}), "kling-3.0/video")
+        self.assertEqual(pl.video_model({"model": "veo"}), "veo3_fast")            # Fast by default
+        self.assertEqual(pl.video_model({"model": "veo", "veo_tier": "quality"}), "veo-3-1")
+        self.assertEqual(pl.video_model({"model": "veo", "veo_tier": "lite"}), "veo3_lite")
+
+        # length changes a kling clip's price; a veo clip's price is its tier and resolution
+        self.assertEqual(pl.credits_per_video({"model": "kling", "mode": "pro"}, 10), 180)
+        self.assertEqual(pl.credits_per_video({"model": "veo"}, 8), 65)            # fast 1080p
+        self.assertEqual(pl.credits_per_video({"model": "veo"}, 4), 65)            # length is free
+        self.assertEqual(pl.credits_per_video({"model": "veo", "veo_resolution": "720p"}), 60)
+        self.assertEqual(pl.credits_per_video({"model": "veo", "veo_tier": "quality"}), 255)
+        self.assertEqual(pl.credits_per_video({"model": "veo", "veo_tier": "lite",
+                                               "veo_resolution": "4k"}), 150)
+
+        # veo renders 4, 6 or 8 seconds and nothing else
+        self.assertEqual([pl.veo_seconds(n) for n in (3, 5, 7, 10)], [4, 4, 6, 8])
+
+        _, d = self.call("POST", "/api/batches", {
+            "name": "c236", "clips": [{"image": "a", "motion": "she says hello"}],
+            "settings": {"model": "veo", "duration": "5"}})
+        self.assertEqual(d["settings"]["model"], "veo")
+        self.assertEqual((d["settings"]["veo_tier"], d["settings"]["veo_resolution"]),
+                         ("fast", "1080p"))
+        self.assertEqual(d["prices"]["video"], 65)
+        self.assertIsNone(d["prices"]["video_per_second"], "veo has no per-second price")
+        self.assertEqual(d["clips"][0]["seconds"], 4, "5s is not a length veo renders")
+        self.run_stage("c236", "frames")
+        self.run_stage("c236", "videos")
+        self.assertEqual(self.kie.videos[-1]["settings"]["model"], "veo")
+
     # ---- kie.ai's picture limit
 
     def test_the_page_is_told_how_many_pictures_each_frame_carries(self):

@@ -24,8 +24,11 @@ Pull these from earlier in the chat. Only ask if genuinely missing:
   Camera behaviour plus the movement in the shot.
 - **References** — any avatar, product, or style image already used or named in the
   conversation, and its file path if one exists on disk.
-- **Settings** — default 9:16 · 5s · pro · sound off, frames at 2K. Carry over
+- **Settings** — default 9:16 · 5s · pro · sound off, frames at 1K. Carry over
   anything the user changed earlier in the conversation.
+- **Per-clip lengths** — if the conversation measured a narration line per clip, or
+  the script names clip lengths, keep them: a clip can run at its own length.
+- **An anchor** — a description of the character the batch locks onto, if one exists.
 
 If the conversation only has motion prompts (an older Polaris-style session), write
 the image prompts from the frame descriptions in the script. Say in one line that you
@@ -73,12 +76,16 @@ Output exactly one fenced code block, nothing else inside it, starting on the
 ```
 batch: <slug>
 
+anchor: <the character the batch locks onto, only when one recurs>
+
 references:
 <full path to an image on disk, one per line, only when a real file exists>
 
 1.
 image: <what the still shows>
 motion: <what moves>
+duration: <seconds, only when this clip differs from the batch>
+end: next
 
 2.
 image: <...>
@@ -95,8 +102,22 @@ Rules for the block:
   reword, trim, merge or "improve" them.
 - Add `ref:` only on the clips that need it (`frame N`, a real path, or
   `needed: <description>`).
+- **`anchor:`** is the character description, written once above the clips. The app
+  drops it into its Draw-a-reference box, so the user can draw the character without
+  retyping it. Only when a character actually recurs.
+- **`duration:`** gives one clip its own length in seconds — use it when a clip has to
+  land on a measured line of narration, and leave it off otherwise so the clip takes
+  the batch's. Kling renders 3–15 seconds; Veo renders 4, 6 or 8 and snaps anything
+  else to the nearest.
+- **`end: next`** makes a clip finish on the picture the following clip opens with, so
+  the two join with no visible cut. `end: frame N` names a specific one. Use it for a
+  continuous camera journey; leave it off when the ad is meant to cut. The last clip
+  has no successor, so it takes no `end`.
+- **Veo instead of Kling** — say `veo` in the `settings:` line when a character has to
+  speak on camera, because Kling cannot lip-sync. Veo is billed per clip (65 credits at
+  its Fast · 1080p default), takes 4/6/8-second clips, and has no mode or sound setting.
 - Add a `settings:` line only when something differs from 9:16 · 5s · pro · sound
-  off · 2K, and then state only what changed. Per-clip notes that are not settings
+  off · 1K, and then state only what changed. Per-clip notes that are not settings
   (motion strength, "low motion", stylistic reminders) belong INSIDE that clip's
   prompt text.
 - No file names, no frame names, no `—` prefixes inside prompt lines.
@@ -105,9 +126,13 @@ Rules for the block:
 
 After the code block, at most two short lines:
 
-- clip count and the credits: frames are **12 credits each** (nano-banana-2) and
-  video is **18 credits/second** in pro (90 for a 5s clip). Give both numbers and the
-  total, e.g. “6 clips — 72 credits of frames + 540 of video, about 612 in all.”
+- clip count and the credits. Frames are priced by resolution — **8 credits at 1K**,
+  12 at 2K, 18 at 4K — and Kling video by the second: **18/s in pro** (90 for a 5s
+  clip), 14/s in std, 27/s with sound on. Give both numbers and the total, e.g.
+  “6 clips — 48 credits of frames + 540 of video, about 588 in all.” Add up per-clip
+  lengths rather than multiplying, if the clips differ.
+- The app corrects those estimates to kie.ai's own `creditsConsumed` once each job
+  finishes, so a slightly stale number is a wrong quote, never a wrong total.
 - if any clip uses `needed:`, one line naming which clips will ask for a picture.
 
 Nothing else. No explanation of the app, no next-step lecture.

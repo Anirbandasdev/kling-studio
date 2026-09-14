@@ -48,9 +48,11 @@ class FakeKie:
         self.images.append({"prompt": prompt, "settings": dict(image_settings), "refs": list(reference_urls)})
         return f"img{len(self.images)}"
 
-    def submit_video(self, image_url, prompt, st, key):
+    def submit_video(self, image_urls, prompt, st, key, seconds=None):
         self._fail_if_asked(prompt)
-        self.videos.append({"prompt": prompt, "image_url": image_url, "settings": dict(st)})
+        urls = [image_urls] if isinstance(image_urls, str) else list(image_urls)
+        self.videos.append({"prompt": prompt, "image_urls": urls, "image_url": urls[0],
+                            "settings": dict(st), "seconds": seconds})
         return f"vid{len(self.videos)}"
 
     def check_task(self, task_id, key, suffixes=pl.VIDEO_SUFFIXES):

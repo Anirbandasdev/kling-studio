@@ -34,7 +34,10 @@ _IMAGE_LIST = re.compile(r"^(?:image|frame)\s*prompts?\s*[:=]?\s*$", re.I)
 _MOTION_LIST = re.compile(r"^(?:motion|video|kling)\s*prompts?\s*[:=]?\s*$", re.I)
 _PLAIN_LIST = re.compile(r"^prompts?\s*[:=]?\s*$", re.I)
 _REFS_HEADER = re.compile(r"^(?:references?|ref\s*images?)\s*[:=]\s*(.*)$", re.I)
-_KEY = re.compile(r"^(image|frame|motion|video|kling|ref|reference)\s*[:=]\s*(.*)$", re.I)
+_KEY = re.compile(r"^(image|frame|motion|video|kling|ref|reference|duration|length|end|anchor)\s*[:=]\s*(.*)$", re.I)
+_ANCHOR = re.compile(r"^anchor\s*[:=]\s*(.*)$", re.I)
+_SECONDS = re.compile(r"^(\d{1,2})\s*s?(?:ec|econds)?$", re.I)
+_END = re.compile(r"^(?:next|(?:frame|clip)?\s*#?(\d{1,3}))$", re.I)
 _NUMBER = re.compile(r"^(?:clip|frame|shot|scene)?\s*#?(\d{1,3})\s*[.):\-\u2013\u2014]\s*(.*)$", re.I)
 _NUMBER_BARE = re.compile(r"^(?:clip|frame|shot|scene)\s*#?(\d{1,3})\s*$", re.I)
 _BULLET = re.compile(r"^[-*\u2022]\s+")
@@ -43,7 +46,23 @@ _NEEDED = re.compile(r"^needed\s*[:\-\u2013\u2014]?\s*(.*)$", re.I)
 _NAME_LIKE = re.compile(r"^[A-Za-z0-9 _-]{1,40}$")
 
 KEY_FIELD = {"image": "image", "frame": "image", "motion": "motion", "video": "motion",
-             "kling": "motion", "ref": "ref", "reference": "ref"}
+             "kling": "motion", "ref": "ref", "reference": "ref",
+             "duration": "duration", "length": "duration", "end": "end"}
+
+
+def parse_seconds(value):
+    """"7", "7s", "7 sec" -> 7; None when it isn't a number of seconds"""
+    m = _SECONDS.match(str(value).strip().strip(QUOTES))
+    return int(m.group(1)) if m else None
+
+
+def parse_end(value):
+    """"next" or "frame 4" -> what this clip's last frame is; None when unreadable"""
+    v = str(value).strip().strip(QUOTES).lower()
+    m = _END.match(v)
+    if not m:
+        return None
+    return int(m.group(1)) if m.group(1) else "next"
 
 
 def sanitize_batch_name(text):
@@ -93,6 +112,11 @@ def parse_settings(text):
     m = re.search(r"\b([124])\s*k\b", text, re.I)
     if m:
         out["resolution"] = m.group(1).upper() + "K"
+    # which video model animates the frames; kling unless the script asks for veo,
+    # which is what a talking-head ad needs because kling cannot lip-sync
+    m = re.search(r"\b(veo[ -]?fast|veo[ -]?lite|veo|kling)\b", text, re.I)
+    if m:
+        out["model"] = m.group(1).lower().replace(" ", "-")
     return out
 
 
@@ -104,6 +128,7 @@ def parse_master(text):
     """
     lines = str(text or "").strip().strip(QUOTES).splitlines()
     name, settings, references, ignored, warnings = None, {}, [], [], []
+    anchor = ""                    # the batch's character description, if the script gave one
     images, motions = {}, {}       # clip number -> prompt, for the two-list style
     blocks, order = {}, []         # clip number -> {"image", "motion", "ref"}
     mode = None                    # "images" | "motions" | "refs" | None
@@ -112,7 +137,7 @@ def parse_master(text):
 
     def block(n):
         if n not in blocks:
-            blocks[n] = {"image": "", "motion": "", "ref": None}
+            blocks[n] = {"image": "", "motion": "", "ref": None, "duration": None, "end": None}
             order.append(n)
         return blocks[n]
 
@@ -154,14 +179,40 @@ def parse_master(text):
             add_ref_line(m.group(1))
             continue
 
+        m = _ANCHOR.match(line)
+        if m and current is None:
+            # the character the batch locks onto, written once above the clips; the app
+            # drops it straight into the Draw-a-reference box
+            anchor = m.group(1).strip().strip(QUOTES)
+            mode, field = None, "anchor" if anchor else None
+            continue
+
         m = _KEY.match(line)
         if m:
-            key, value = KEY_FIELD[m.group(1).lower()], m.group(2).strip()
+            word, value = m.group(1).lower(), m.group(2).strip()
+            if word == "anchor":                 # an anchor line inside a clip is still the batch's
+                anchor = value
+                field = "anchor" if value else None
+                continue
+            key = KEY_FIELD[word]
             if current is None:                  # an "image:" line before any number
                 current = (max(order) + 1) if order else 1
                 block(current)
             if key == "ref":
                 block(current)["ref"] = parse_ref(value)
+                field = None
+            elif key == "duration":
+                seconds = parse_seconds(value)
+                if seconds is None:
+                    warnings.append(f"Clip {current}: “{value}” isn't a number of seconds.")
+                block(current)["duration"] = seconds
+                field = None
+            elif key == "end":
+                end = parse_end(value)
+                if end is None:
+                    warnings.append(f"Clip {current}: “{value}” isn't a frame to end on. "
+                                    "Use “next” or a clip number.")
+                block(current)["end"] = end
                 field = None
             else:
                 block(current)[key] = value
@@ -191,6 +242,8 @@ def parse_master(text):
             target = images if mode == "images" else motions
             last = max(target)
             target[last] = (target[last] + " " + line).strip()
+        elif field == "anchor":
+            anchor = (anchor + " " + line).strip()
         elif current is not None and field:
             b = block(current)
             b[field] = (b[field] + " " + line).strip()
@@ -202,12 +255,14 @@ def parse_master(text):
     clips = []
     if images or motions:
         for n in sorted(set(images) | set(motions)):
-            clips.append({"image": images.get(n, "").strip(), "motion": motions.get(n, "").strip(), "ref": None})
+            clips.append({"image": images.get(n, "").strip(), "motion": motions.get(n, "").strip(),
+                          "ref": None, "duration": None, "end": None})
         if images and motions and len(images) != len(motions):
             warnings.append(f"{len(images)} image prompts but {len(motions)} motion prompts.")
     for n in sorted(order):
         b = blocks[n]
-        clips.append({"image": b["image"].strip(), "motion": b["motion"].strip(), "ref": b["ref"]})
+        clips.append({"image": b["image"].strip(), "motion": b["motion"].strip(), "ref": b["ref"],
+                      "duration": b["duration"], "end": b["end"]})
 
     if not clips:
         warnings.append("No prompts found. Every clip needs an image prompt and a motion prompt.")
@@ -221,5 +276,5 @@ def parse_master(text):
             warnings.append(f"No motion prompt for clip {', '.join(map(str, no_motion[:10]))}.")
     if not name:
         warnings.append("No batch name found. Put \"batch: <name>\" on the first line.")
-    return {"name": name, "settings": settings, "references": references,
+    return {"name": name, "settings": settings, "references": references, "anchor": anchor,
             "clips": clips, "warnings": warnings, "ignored": ignored}

@@ -551,9 +551,19 @@ class Core:
                 or b.last_charged("frame", pl.frame_signature(image_settings))
                 or pl.credits_per_frame(image_settings))
 
-    def video_price(self, b):
+    def video_price(self, b, seconds=None):
+        """credits for one clip of this batch, at its own length if it has one"""
         settings = {**pl.DEFAULT_SETTINGS, **(b.job.get("settings") or {})}
-        return b.last_charged("video", pl.video_signature(settings)) or pl.credits_per_video(settings)
+        try:
+            batch_seconds = int(settings.get("duration", 5))
+        except (TypeError, ValueError):
+            batch_seconds = int(pl.DEFAULT_SETTINGS["duration"])
+        # a charge we have actually seen only speaks for a clip of the same length
+        if seconds in (None, batch_seconds):
+            learned = b.last_charged("video", pl.video_signature(settings))
+            if learned:
+                return learned
+        return pl.credits_per_video(settings, seconds)
 
     def prices(self, b):
         """the numbers behind every estimate the page shows for this batch"""
@@ -566,8 +576,10 @@ class Core:
             pass
         learned = bool(b.last_charged("frame", pl.frame_signature(b.job.get("image_settings")))
                        or b.last_charged("video", pl.video_signature(settings)))
+        # veo bills by the clip, so a per-second figure for it would be a fiction
+        per_second = pl.video_credits_per_second(settings)
         return {"frame": self.frame_price(b), "video": video,
-                "video_per_second": (round(video / seconds, 2) if video and seconds else None),
+                "video_per_second": per_second,
                 "override": bool(self.cfg.frame_credits),
                 "learned": learned}
 
@@ -660,6 +672,10 @@ class Core:
                 "index": i, "name": n, "image": c.get("image", ""), "motion": c.get("motion", ""),
                 "ref": c.get("ref"), "needs_reference": bool(need and need[0] == "ask"),
                 "reference_note": (need[1] if need and need[0] == "ask" else ""),
+                "seconds": b.clip_seconds(n),
+                "video_credits": pl.credits_per_video(
+                    {**pl.DEFAULT_SETTINGS, **(b.job.get("settings") or {})}, b.clip_seconds(n)),
+                "ends_on": b.end_frame_for(n),
                 "references_planned": len(plan),
                 "reference_labels": [it["label"] for it in plan],
                 # enough for the page to show each picture and say where it came from
@@ -710,12 +726,38 @@ class Core:
         if not clips:
             raise ApiError(400, "Paste the prompts first: every clip needs an image prompt and a motion prompt.")
         cleaned = []
-        for c in clips:
+        for i, c in enumerate(clips, 1):
             ref = c.get("ref")
             if ref is not None and not isinstance(ref, dict):
                 raise ApiError(400, "Bad reference.")
+            seconds = c.get("duration")
+            if seconds not in (None, ""):
+                try:
+                    seconds = int(float(seconds))
+                except (TypeError, ValueError):
+                    raise ApiError(400, f"Clip {i}: the length has to be a number of seconds.") from None
+                if not pl.CLIP_SECONDS_MIN <= seconds <= pl.CLIP_SECONDS_MAX:
+                    raise ApiError(400, f"Clip {i}: kie.ai takes {pl.CLIP_SECONDS_MIN}–"
+                                        f"{pl.CLIP_SECONDS_MAX} seconds a clip.")
+            else:
+                seconds = None
+            end = c.get("end")
+            if end not in (None, ""):
+                if str(end).strip().lower() == "next":
+                    end = "next"
+                else:
+                    try:
+                        end = int(end)
+                    except (TypeError, ValueError):
+                        raise ApiError(400, f"Clip {i}: end has to be “next” or a clip "
+                                            "number.") from None
+                    if not 0 < end <= len(clips):
+                        raise ApiError(400, f"Clip {i}: there is no clip {end} to end on.")
+            else:
+                end = None
             cleaned.append({"image": str(c.get("image") or "").strip(),
-                            "motion": str(c.get("motion") or "").strip(), "ref": ref})
+                            "motion": str(c.get("motion") or "").strip(), "ref": ref,
+                            "duration": seconds, "end": end})
         settings = self.clean_settings(body.get("settings"), pl.DEFAULT_SETTINGS)
         image_settings = self.clean_settings(body.get("image_settings"), pl.DEFAULT_IMAGE_SETTINGS)
         references = [r for r in (body.get("references") or []) if isinstance(r, dict)]
@@ -728,7 +770,14 @@ class Core:
             except (ValueError, OSError) as e:
                 raise ApiError(400, str(e)) from None
             self.batches[name] = b
+        anchor = str(body.get("anchor") or "").strip()
+        if anchor:
+            b.set_anchor(prompt=anchor)      # waiting in the Draw-a-reference box
         self.log(b, f"Created batch with {len(cleaned)} clips.")
+        chained = sum(1 for c in cleaned if c["end"])
+        if chained:
+            self.log(b, f"{plural(chained, 'clip')} end on another clip's frame, so they join "
+                        "without a cut.")
         return self.detail(b)
 
     def run(self, name, body):
@@ -925,6 +974,20 @@ class Core:
             if old.get("file") and old["file"] != (new or {}).get("file"):
                 replaced = old["file"]
             clip["ref"] = new
+        if "frame" in body and body["frame"] is None:
+            # take the picture back off: the slot goes empty, as if the frame had never
+            # been made. The video stays — that was paid for separately and is still a
+            # perfectly good file.
+            if not b.frame_ready(clip_name):
+                raise ApiError(400, "There is no picture on that clip to remove.")
+            was = b.frame_path(clip_name)
+            for stale in b.frames_dir.glob(f"{clip_name}.*"):
+                stale.unlink(missing_ok=True)
+            b.update(clip_name, "frame", status="pending", file=None, source=None, url=None,
+                     error=None, stage=None, task_id=None, failed_by=None, bytes=None,
+                     finished_at=None, credits=None, references_used=None,
+                     references_dropped=None)
+            self.log(b, f"{clip_name}: picture removed ({was.name}). The slot is empty again.")
         b.save_job()
         if replaced:
             self._forget_file(b, replaced)      # the picture it was using, if nothing else wants it
