@@ -3011,14 +3011,20 @@ function wire() {
   window.addEventListener("drop", e => e.preventDefault());
 }
 
+// Each window says which one it is, so the app can count the windows still open
+// rather than guess from one goodbye. Two windows on one app used to mean closing
+// either one took the other down with it.
+const WINDOW_ID = (crypto.randomUUID ? crypto.randomUUID() : `w${Date.now()}${Math.random()}`).slice(0, 64);
+
 function startHeartbeat() {
-  const ping = () => fetch("/api/ping", { method: "POST", headers: { "X-PK-Token": TOKEN }, keepalive: true }).catch(() => {});
+  const ping = () => fetch(`/api/ping?w=${enc(WINDOW_ID)}`,
+                           { method: "POST", headers: { "X-PK-Token": TOKEN }, keepalive: true }).catch(() => {});
   ping();
   try {  // a worker keeps pinging even when the window is minimised and timers are throttled
     const w = new Worker(URL.createObjectURL(new Blob(["setInterval(() => postMessage(0), 15000)"], { type: "text/javascript" })));
     w.onmessage = ping;
   } catch { setInterval(ping, 15000); }
-  window.addEventListener("pagehide", () => navigator.sendBeacon(withToken("/api/bye")));
+  window.addEventListener("pagehide", () => navigator.sendBeacon(withToken(`/api/bye?w=${enc(WINDOW_ID)}`)));
 }
 
 async function init() {

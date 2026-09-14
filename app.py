@@ -38,7 +38,11 @@ APP_VERSION = "3.9.0"
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 UI_FILE = BASE_DIR / "ui" / "index.html"
 MAX_BODY = 48 * 1024 * 1024      # dropped pictures arrive as base64 in the body
-IDLE_LIMIT = 75                  # no heartbeat (sent every 15 s) for this long means the window is gone
+WINDOW_TIMEOUT = 75              # a window silent this long has gone (its heartbeat is every 15 s)
+EMPTY_GRACE = 20                 # with no window left at all, wait this long before quitting, so a
+                                 # reload — which closes the page and opens it again — survives
+OPEN_GRACE = 45                  # how long to wait for the first window to check in after launch
+MONITOR_TICK = 2                 # how often the app asks whether any window is left
 CREATE_NO_WINDOW = 0x08000000
 NAME = r"([A-Za-z0-9_-]{1,60})"
 CLIP = r"([A-Za-z0-9_-]{1,80})"
@@ -258,8 +262,7 @@ class Core:
         self.logs = {}          # name -> deque of log entries
         self.stop_reasons = {}  # name -> why the last run stopped early
         self.anchors = {}       # name -> thread drawing that batch's anchor
-        self.last_ping = time.time()
-        self.bye_at = 0.0
+        self.windows = {}       # window id -> when that window last said it was still there
         self.shutdown = None      # set by create_server, so an install can close the server
         self.window_proc = None   # the browser showing the app, so an install can close it
         # state: idle | checking | current | ready | downloading | installing | error
@@ -269,6 +272,30 @@ class Core:
     def active_runs(self):
         with self.lock:
             return [n for n, r in self.runners.items() if r.is_alive()]
+
+    # ---- windows
+    #
+    # The app quits when its last window closes, so it does not sit in the background
+    # forever. What counts is how many windows are still checking in: reacting to one
+    # goodbye, or to a single stale timestamp, used to take a live window down with it
+    # — open the app twice and closing either window killed the other.
+
+    def window_here(self, wid):
+        with self.lock:
+            self.windows[wid] = time.time()
+
+    def window_closed(self, wid):
+        with self.lock:
+            self.windows.pop(wid, None)
+
+    def live_windows(self, now=None):
+        """how many windows have checked in recently, forgetting any that went quiet"""
+        now = now or time.time()
+        with self.lock:
+            for wid, seen in list(self.windows.items()):
+                if now - seen > WINDOW_TIMEOUT:
+                    del self.windows[wid]
+            return len(self.windows)
 
     # ---- updates
 
@@ -1234,16 +1261,22 @@ class Handler(BaseHTTPRequestHandler):
 
 # ---- routes
 
+def window_id(h):
+    """which window is speaking, or one shared name if the page is too old to say"""
+    wid = (h.query.get("w") or [""])[0].strip()[:64]
+    return wid or "window"
+
+
 @route("GET", "/api/ping")
 @route("POST", "/api/ping")
 def api_ping(h):
-    h.core.last_ping = time.time()
+    h.core.window_here(window_id(h))
     return {"ok": True, "version": APP_VERSION}
 
 
 @route("POST", "/api/bye")
 def api_bye(h):
-    h.core.bye_at = time.time()
+    h.core.window_closed(window_id(h))
     return {"ok": True}
 
 
@@ -1573,23 +1606,28 @@ def update_watch(core, first_delay=3, every=6 * 3600):
         time.sleep(every)
 
 
-def monitor(server, proc):
-    """shut down once every window is closed and no batch is working"""
+def monitor(server):
+    """Shut down once every window is closed and no batch is working.
+
+    The only question asked is how many windows are still checking in. Watching the
+    browser process instead is unreliable — it exits on its own when it hands the
+    window to a copy of itself that was already running — and a window that is merely
+    reloading goes quiet for a moment without having closed. So nothing is concluded
+    from one signal: the app quits only after a stretch with no window at all.
+    """
     core = server.core
     launched = time.time()
-    proc_closed_at = None
+    empty_since = None
     while True:
-        time.sleep(2)
+        time.sleep(MONITOR_TICK)
         now = time.time()
-        if proc is not None and proc_closed_at is None and proc.poll() is not None:
-            # a quick exit means the browser handed the window to an existing process
-            proc_closed_at = now if now - launched > 10 else -1
-        window_gone = (
-            (proc_closed_at not in (None, -1) and core.last_ping < proc_closed_at + 1)
-            or (core.bye_at > core.last_ping and now - core.bye_at > 5)
-            or now - core.last_ping > IDLE_LIMIT
-        )
-        if window_gone and not core.active_runs():
+        if core.live_windows(now):
+            empty_since = None
+        elif empty_since is None:
+            # give the first window until OPEN_GRACE to appear, so a slow browser
+            # launch is not mistaken for a window that opened and closed again
+            empty_since = max(now, launched + OPEN_GRACE)
+        if empty_since is not None and now - empty_since > EMPTY_GRACE and not core.active_runs():
             server.shutdown()
             return
 
@@ -1626,7 +1664,7 @@ def main(argv=None):
             pass  # without it, opening the app again just starts a second copy
         proc = open_window(url)
         server.core.window_proc = proc
-        threading.Thread(target=monitor, args=(server, proc), daemon=True).start()
+        threading.Thread(target=monitor, args=(server,), daemon=True).start()
         threading.Thread(target=update_watch, args=(server.core,), daemon=True).start()
         threading.Thread(target=collect_watch, args=(server.core,), daemon=True).start()
     try:
