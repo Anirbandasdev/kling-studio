@@ -4,7 +4,7 @@
 ;
 ; Per-user install: no admin/UAC prompt, Start Menu shortcut, uninstaller included.
 
-#define AppVersion "3.9.1"
+#define AppVersion "9.9.9"
 
 [Setup]
 AppId={{677AD1D4-F54A-4D0B-B5BD-F582DC5D9B41}
