@@ -156,6 +156,18 @@ h2 { margin: 0; font: 650 16.5px/1.3 var(--display); letter-spacing: -.015em; }
 .chip.price { border-color: rgba(139, 123, 255, .32); background: var(--accent-soft); color: #cec7ff; }
 .chip b { color: var(--text); font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
 .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }
+/* a chip that says what the batch is set to, and opens the editor for it */
+.chip-edit { cursor: pointer; gap: 8px; font-family: inherit; color: var(--text-2);
+  transition: border-color .15s, color .15s, background .15s; }
+.chip-edit svg { opacity: .55; flex: none; }
+.chip-edit:hover { color: var(--text); border-color: var(--border-strong); background: var(--panel-3); }
+.chip-edit:hover svg { opacity: 1; }
+.chip-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.set-group { margin-bottom: 18px; }
+.set-group:last-of-type { margin-bottom: 14px; }
+.set-head { margin-bottom: 8px; font-size: 11px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; color: var(--text-3); }
+.set-note { padding: 11px 13px; border-radius: 12px; background: var(--accent-soft); border: 1px solid rgba(139, 123, 255, .3); font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.set-note b { color: var(--text); }
 .chip.ok .dot { background: var(--green); box-shadow: 0 0 8px var(--green); }
 .chip.warn .dot { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
 .chip.err .dot { background: var(--red); box-shadow: 0 0 8px var(--red); }
@@ -944,6 +956,119 @@ function toast(message, kind = "info", ms = 5000) {
   setTimeout(() => el.remove(), ms);
 }
 
+// Settings can be changed after a batch exists, because the reason to change them
+// usually only shows up once you have seen the first frames. They reach work that has
+// not been done yet: what is already made keeps what it was made with, and redoing it
+// is what moves it — said plainly in the dialog, since the other reading would be an
+// expensive surprise.
+function editBatchSettings(b, focus) {
+  const s = { ...b.settings }, im = { ...b.image_settings };
+  const seg = (group, key, options, current) => `<div class="seg" data-group="${group}" data-key="${key}">${
+    options.map(([v, label]) => `<button data-v="${v}"${String(current) === String(v) ? ' class="on"' : ""}>${
+      esc(label)}</button>`).join("")}</div>`;
+  const row = (label, control, cls = "") =>
+    `<div class="setting-row${cls ? " " + cls : ""}"><span>${esc(label)}</span>${control}</div>`;
+
+  const body = `
+    <div class="set-group"><div class="set-head">Frames · Nano Banana 2</div>
+      ${row("Resolution", seg("image", "resolution", [["1K", "1K"], ["2K", "2K"], ["4K", "4K"]], im.resolution))}
+      ${row("Aspect ratio", seg("image", "aspect_ratio", [["9:16", "9:16"], ["16:9", "16:9"], ["1:1", "1:1"]], im.aspect_ratio))}
+    </div>
+    <div class="set-group"><div class="set-head">Videos</div>
+      ${row("Model", seg("video", "model", [["kling", "Kling"], ["veo", "Veo"]], isVeo(s) ? "veo" : "kling"))}
+      ${row("Duration", `<div class="seg" data-group="video" data-key="duration" id="edDurSeg"></div>
+        <div class="slider" id="edDurSlider"><input type="range" id="edDurRange" min="${KLING_MIN}" max="${KLING_MAX}"
+          step="1" aria-label="Seconds per clip"><span class="slider-val" id="edDurValue"></span></div>`)}
+      ${row("Mode", seg("video", "mode", [["pro", "Pro"], ["std", "Std"]], s.mode), "ed-kling")}
+      ${row("Sound", `<label class="switch"><input type="checkbox" id="edSound"${s.sound ? " checked" : ""}><span></span></label>`, "ed-kling")}
+      ${row("Veo tier", seg("video", "veo_tier", [["fast", "Fast"], ["quality", "Quality"], ["lite", "Lite"]], s.veo_tier || "fast"), "ed-veo")}
+      ${row("Veo resolution", seg("video", "veo_resolution", [["720p", "720p"], ["1080p", "1080p"], ["4k", "4K"]], s.veo_resolution || "1080p"), "ed-veo")}
+    </div>
+    <div class="set-note" id="edNote"></div>`;
+
+  const m = openModal({
+    title: "Batch settings", wide: true,
+    sub: "These apply to whatever has not been made yet.",
+    body,
+    actions: [
+      { label: "Cancel", onClick: (btn, h) => h.dismiss() },
+      { label: "Save", kind: "primary", onClick: async (btn, h) => {
+          btn.disabled = true;
+          // Send only what was actually touched. Posting the whole blob would mean a
+          // dialog left open while something else changed the batch silently puts the
+          // old values back when it is saved.
+          const changed = (now, was) => Object.fromEntries(
+            Object.entries(now).filter(([k, v]) => String(v) !== String(was[k])));
+          const body = {};
+          const vid = changed(s, b.settings), img = changed(im, b.image_settings);
+          if (Object.keys(vid).length) body.settings = vid;
+          if (Object.keys(img).length) body.image_settings = img;
+          if (!Object.keys(body).length) return h.close();      // nothing to say
+          try {
+            const d = await api(`/api/batches/${enc(b.name)}/settings`,
+                                { method: "POST", body });
+            S.batch = d;
+            renderBatch();
+            toast("Settings changed. What is already made keeps what it was made with.", "ok");
+            h.close();
+          } catch (e) { btn.disabled = false; toast(e.message, "err"); }
+        } },
+    ],
+  });
+
+  const paint = () => {
+    const veo = isVeo(s);
+    for (const r of m.el.querySelectorAll(".ed-veo")) r.hidden = !veo;
+    for (const r of m.el.querySelectorAll(".ed-kling")) r.hidden = veo;
+    $("#edDurSeg", m.el).hidden = !veo;
+    $("#edDurSlider", m.el).hidden = veo;
+    if (veo) {
+      setHTML($("#edDurSeg", m.el), VEO_SECONDS.map(v =>
+        `<button data-v="${v}"${String(s.duration) === v ? ' class="on"' : ""}>${v}s</button>`).join(""));
+      if (!VEO_SECONDS.includes(String(s.duration))) s.duration = "8";
+    } else {
+      s.duration = String(clampKlingSeconds(s.duration));
+      $("#edDurRange", m.el).value = s.duration;
+      $("#edDurValue", m.el).textContent = `${s.duration}s`;
+    }
+    for (const g of m.el.querySelectorAll(".seg[data-key]")) {
+      const from = g.dataset.group === "image" ? im : s;
+      for (const btn of g.querySelectorAll("button")) {
+        btn.classList.toggle("on", String(from[g.dataset.key]) === btn.dataset.v);
+      }
+    }
+    const made = (b.counts || {}).frames || 0;
+    const per = frameCredits(im), video = videoCredits(s);
+    setHTML($("#edNote", m.el),
+      `${per ? `<b>${per}${video ? ` + ${video}` : ""} credits a clip</b> at these settings. ` : ""}` +
+      (made ? `The ${plural(made, "frame")} already drawn keep what they were drawn with — redo one to move it.`
+            : "Nothing has been made yet, so this applies to all of it."));
+  };
+
+  m.el.addEventListener("click", async e => {
+    const btn = e.target.closest(".seg[data-key] button");
+    if (!btn) return;
+    const g = btn.closest(".seg");
+    if (g.dataset.key === "model") {
+      if (btn.dataset.v === "veo" && !isVeo(s)) { if (!await confirmVeo()) return; }
+      s.model = btn.dataset.v;
+    } else if (g.dataset.group === "image") {
+      im[g.dataset.key] = btn.dataset.v;
+    } else {
+      s[g.dataset.key] = btn.dataset.v;
+    }
+    paint();
+  });
+  $("#edSound", m.el).addEventListener("change", e => { s.sound = e.target.checked; paint(); });
+  $("#edDurRange", m.el).addEventListener("input", e => {
+    s.duration = String(clampKlingSeconds(e.target.value));
+    paint();
+  });
+  paint();
+  if (focus === "frames") m.el.querySelector(".set-group .seg button")?.focus();
+  return m;
+}
+
 function openModal({ title, sub, body, actions = [], wide = false, onDismiss }) {
   const back = document.createElement("div");
   back.className = "backdrop";
@@ -1357,16 +1482,21 @@ function renderBatch() {
   $("#bName").textContent = b.name;
   const s = b.settings, im = b.image_settings;
   const fPer = batchFrame(b), vPer = batchVideo(b);
+  // The two settings chips open the editor. They describe what the batch is set to,
+  // so they are the thing you reach for when you want it set to something else.
   setHTML($("#bChips"), [
-    [`Frames ${im.resolution} · ${im.aspect_ratio}`, ""],
+    [`Frames ${im.resolution} · ${im.aspect_ratio}`, "", "frames"],
     [isVeo(s) ? `Video · ${modelName(s)}`
-      : `Video ${s.duration}s · ${s.mode === "pro" ? "Pro" : s.mode === "std" ? "Std" : s.mode} · sound ${s.sound ? "on" : "off"}`, ""],
-    ...(fPer ? [[`${fPer}${vPer ? ` + ${vPer}` : ""} credits a clip`, "price"]] : []),
-    ...(b.references.length ? [[plural(b.references.length, "batch reference"), ""]] : []),
-  ].map(([text, kind]) => `<span class="chip${kind ? " " + kind : ""}"${kind === "price"
-    ? ` title="${esc(`${fPer} for the frame and ${vPer || "?"} for the video. ${
-      (b.prices || {}).learned ? "These are what kie.ai charged this batch last time."
-        : "An estimate until kie.ai says otherwise — it is corrected to their figure as each one finishes."}`)}"` : ""}>${esc(text)}</span>`).join(""));
+      : `Video ${s.duration}s · ${s.mode === "pro" ? "Pro" : s.mode === "std" ? "Std" : s.mode} · sound ${s.sound ? "on" : "off"}`, "", "video"],
+    ...(fPer ? [[`${fPer}${vPer ? ` + ${vPer}` : ""} credits a clip`, "price", ""]] : []),
+    ...(b.references.length ? [[plural(b.references.length, "batch reference"), "", ""]] : []),
+  ].map(([text, kind, edits]) => edits
+    ? `<button class="chip chip-edit" data-edit="${edits}" title="Change these">${
+        esc(text)}${ICON.edit.replace("<svg", '<svg width="12" height="12"')}</button>`
+    : `<span class="chip${kind ? " " + kind : ""}"${kind === "price"
+      ? ` title="${esc(`${fPer} for the frame and ${vPer || "?"} for the video. ${
+        (b.prices || {}).learned ? "These are what kie.ai charged this batch last time."
+          : "An estimate until kie.ai says otherwise — it is corrected to their figure as each one finishes."}`)}"` : ""}>${esc(text)}</span>`).join(""));
 
   const c = b.counts;
   const busy = b.clips.filter(x => partStatus(x.frame, b.running, "frame").busy || partStatus(x.video, b.running, "video").busy).length;
@@ -3005,6 +3135,12 @@ function wire() {
   $("#bDeleteBtn").onclick = () => { if (S.batch) confirmDelete(S.batch); };
   $("#bTryBtn").onclick = e => { if (e.currentTarget.dataset.clip) startStage("frames", [e.currentTarget.dataset.clip]); };
   $("#bCopyBtn").onclick = () => { if (S.batch) openMasterPrompt(S.batch.name); };
+  $("#bChips").addEventListener("click", e => {
+    const chip = e.target.closest(".chip-edit");
+    if (!chip || !S.batch) return;
+    if (S.batch.running) return toast("Wait for this batch to finish before changing its settings.", "info");
+    editBatchSettings(S.batch, chip.dataset.edit);
+  });
   $("#bFolderBtn").onclick = () => {
     if (!S.batch) return;
     api(`/api/batches/${enc(S.batch.name)}/open`, { method: "POST", body: { target: "folder" } })

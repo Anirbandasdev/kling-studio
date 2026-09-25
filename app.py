@@ -986,6 +986,38 @@ class Core:
 
     # ---- edits from the page
 
+    def edit_settings(self, name, body):
+        """Change a batch's settings after it was created.
+
+        These only reach work that has not been done yet: a frame already drawn keeps
+        the resolution it was drawn at, and redoing it is what moves it. Saying so
+        matters, because the alternative reading — that everything silently re-renders
+        — would be an expensive surprise.
+        """
+        b = self.get_batch(name)
+        with self.lock:
+            if name in self.runners:
+                raise ApiError(409, "Wait for this batch to finish before changing its settings.")
+        said = []
+        if "settings" in body:
+            before = dict(b.job.get("settings") or {})
+            after = self.clean_settings({**before, **(body["settings"] or {})}, pl.DEFAULT_SETTINGS)
+            if after != before:
+                b.job["settings"] = after
+                said.append("video settings")
+        if "image_settings" in body:
+            before = dict(b.job.get("image_settings") or {})
+            after = self.clean_settings({**before, **(body["image_settings"] or {})},
+                                        pl.DEFAULT_IMAGE_SETTINGS)
+            if after != before:
+                b.job["image_settings"] = after
+                said.append("frame settings")
+        if said:
+            b.save_job()
+            self.log(b, f"Changed the {' and '.join(said)}. "
+                        "Anything already made keeps what it was made with.")
+        return self.detail(b)
+
     def edit_clip(self, name, body):
         b = self.get_batch(name)
         clip_name = str(body.get("clip") or "")
@@ -1425,6 +1457,11 @@ def api_run(h, name):
 @route("POST", f"/api/batches/{NAME}/stop")
 def api_stop(h, name):
     return h.core.stop(name)
+
+
+@route("POST", f"/api/batches/{NAME}/settings")
+def api_edit_settings(h, name):
+    return h.core.edit_settings(name, h.read_body())
 
 
 @route("POST", f"/api/batches/{NAME}/clip")

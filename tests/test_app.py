@@ -1264,6 +1264,63 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(b["clips"][0]["video_credits"],
                          a["clips"][0]["video_credits"] / 5 * 11)
 
+    # ---- changing a batch's settings after it exists
+    #
+    # The reason to change them usually only shows up once the first frames are back,
+    # and there was no way to do it without starting the batch again from the paste.
+
+    def test_settings_can_be_changed_after_the_batch_is_made(self):
+        self.make("resettle")
+        status, d = self.call("POST", "/api/batches/resettle/settings",
+                              {"settings": {"duration": "9", "mode": "std"},
+                               "image_settings": {"resolution": "4K"}})
+        self.assertEqual(status, 200, d)
+        _, b = self.call("GET", "/api/batches/resettle")
+        self.assertEqual(b["settings"]["duration"], "9")
+        self.assertEqual(b["settings"]["mode"], "std")
+        self.assertEqual(b["image_settings"]["resolution"], "4K")
+
+    def test_what_is_left_alone_stays_as_it_was(self):
+        self.make("partial")
+        _, before = self.call("GET", "/api/batches/partial")
+        self.call("POST", "/api/batches/partial/settings", {"settings": {"mode": "std"}})
+        _, after = self.call("GET", "/api/batches/partial")
+        self.assertEqual(after["settings"]["aspect_ratio"], before["settings"]["aspect_ratio"])
+        self.assertEqual(after["image_settings"], before["image_settings"])
+
+    def test_the_new_price_is_quoted_straight_away(self):
+        self.make("repriced")                       # make() asks for 2K frames
+        _, before = self.call("GET", "/api/batches/repriced")
+        self.assertEqual(before["prices"]["frame"], 12)
+        self.call("POST", "/api/batches/repriced/settings",
+                  {"image_settings": {"resolution": "4K"}})
+        _, after = self.call("GET", "/api/batches/repriced")
+        self.assertEqual(after["prices"]["frame"], 18)
+
+    def test_a_length_kling_cannot_render_is_refused_here_too(self):
+        self.make("badlen")
+        status, d = self.call("POST", "/api/batches/badlen/settings", {"settings": {"duration": "40"}})
+        self.assertEqual(status, 400, d)
+        self.assertIn("out of range", d["error"])
+
+    def test_a_frame_already_drawn_keeps_what_it_was_drawn_with(self):
+        self.make("kept")
+        self.run_stage("kept", "frames")
+        _, before = self.call("GET", "/api/batches/kept")
+        drawn = [c["frame"]["file"] for c in before["clips"] if c["frame"].get("file")]
+        self.assertTrue(drawn, "no frames were made")
+        self.call("POST", "/api/batches/kept/settings", {"image_settings": {"resolution": "4K"}})
+        _, after = self.call("GET", "/api/batches/kept")
+        self.assertEqual([c["frame"]["file"] for c in after["clips"] if c["frame"].get("file")], drawn)
+        self.assertTrue(all(c["frame"]["ready"] for c in after["clips"]))
+
+    def test_the_change_is_written_into_the_log(self):
+        self.make("logged")
+        self.call("POST", "/api/batches/logged/settings", {"settings": {"mode": "std"}})
+        _, b = self.call("GET", "/api/batches/logged")
+        self.assertTrue(any("video settings" in e["text"] for e in b["log"]),
+                        [e["text"] for e in b["log"]])
+
 
 if __name__ == "__main__":
     unittest.main()
