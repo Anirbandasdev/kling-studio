@@ -743,6 +743,14 @@ class Core:
                 out[k] = bool(v) if isinstance(defaults[k], bool) else str(v).strip()
         if "duration" in out and not str(out["duration"]).isdigit():
             raise ApiError(400, "Duration must be a whole number of seconds.")
+        # Say so rather than quietly clamping: a batch asked for at 20s that comes back
+        # at 15 is a surprise found in the finished files, not at the point of asking.
+        # Veo is left alone — it takes 4, 6 or 8 and snaps to the nearest of them.
+        if "duration" in out and not pl.is_veo(out):
+            seconds = int(out["duration"])
+            if not pl.CLIP_SECONDS_MIN <= seconds <= pl.CLIP_SECONDS_MAX:
+                raise ApiError(400, f"Kling renders {pl.CLIP_SECONDS_MIN}–{pl.CLIP_SECONDS_MAX} "
+                                    f"seconds a clip, so {seconds}s is out of range.")
         return out
 
     def create(self, body):

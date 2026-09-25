@@ -177,6 +177,19 @@ h2 { margin: 0; font: 650 16.5px/1.3 var(--display); letter-spacing: -.015em; }
 .seg button { height: 27px; padding: 0 11px; border: 0; border-radius: 8px; background: transparent; color: var(--text-3); font-size: 12.5px; font-weight: 650; cursor: pointer; transition: color .15s, background .15s; }
 .seg button:hover { color: var(--text); }
 .seg button.on { background: var(--panel-3); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }
+/* Kling renders any length from 3 to 15 seconds, which is too many to sit in a row of
+   buttons, so it gets a slider. Veo keeps the buttons: it takes 4, 6 or 8 and nothing
+   in between, and a slider would invite lengths it refuses. */
+.slider { display: inline-flex; align-items: center; gap: 10px; }
+.slider input[type="range"] { -webkit-appearance: none; appearance: none; width: 148px; height: 4px;
+  border-radius: 3px; background: var(--panel-3); border: 1px solid var(--border); cursor: pointer; }
+.slider input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
+  width: 15px; height: 15px; border-radius: 50%; background: var(--accent); border: 0; cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .5); }
+.slider input[type="range"]::-moz-range-thumb { width: 15px; height: 15px; border-radius: 50%;
+  background: var(--accent); border: 0; cursor: pointer; }
+.slider input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.slider-val { min-width: 30px; font-size: 12.5px; font-weight: 650; color: var(--text); font-variant-numeric: tabular-nums; }
 .switch { position: relative; display: inline-block; width: 42px; height: 23px; }
 .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
 .switch span { position: absolute; inset: 0; border-radius: 999px; background: rgba(0, 0, 0, .4); border: 1px solid var(--border-strong); cursor: pointer; transition: background .2s; }
@@ -617,7 +630,11 @@ ref: frame 1"></textarea>
             <div class="setting-row"><span>Model</span>
               <div class="seg" data-setting="model"><button data-v="kling">Kling</button><button data-v="veo">Veo</button></div></div>
             <div class="setting-row"><span>Duration</span>
-              <div class="seg" data-setting="duration" id="durationSeg"></div></div>
+              <div class="seg" data-setting="duration" id="durationSeg"></div>
+              <div class="slider" id="durationSlider" hidden>
+                <input type="range" id="durationRange" min="3" max="15" step="1" value="5"
+                       aria-label="Seconds per clip">
+                <span class="slider-val" id="durationValue">5s</span></div></div>
             <div class="setting-row kling-only"><span>Mode</span>
               <div class="seg" data-setting="mode"><button data-v="pro">Pro</button><button data-v="std">Std</button></div></div>
             <div class="setting-row kling-only"><span>Sound</span>
@@ -763,8 +780,17 @@ function videoCredits(s) {
   return per && seconds > 0 ? per * seconds : null;
 }
 
-const KLING_SECONDS = ["5", "10"];
+const KLING_MIN = 3, KLING_MAX = 15;   // what kling-3.0 accepts per clip
 const VEO_SECONDS = ["4", "6", "8"];   // veo renders these three and nothing else
+
+// A length arriving from a pasted settings line, a saved draft or a batch made before
+// the slider existed can be anything at all, so it is pulled back into range rather
+// than handed to kie.ai to reject.
+function clampKlingSeconds(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return Number(DEFAULTS.duration) || 5;
+  return Math.min(KLING_MAX, Math.max(KLING_MIN, n));
+}
 const isVeo = s => String((s || {}).model || "kling").toLowerCase().startsWith("veo");
 const modelName = s => isVeo(s) ? "Veo 3.1" : "Kling 3.0";
 
@@ -1192,13 +1218,23 @@ function renderNew() {
   // shape with the choice rather than offering options the model will reject.
   const veo = isVeo(N.settings);
   $("#videoCardTitle").textContent = `Videos · ${modelName(N.settings)}`;
-  const lengths = veo ? VEO_SECONDS : KLING_SECONDS;
-  setHTML($("#durationSeg"), lengths.map(s => `<button data-v="${s}">${s}s</button>`).join(""));
-  if (!lengths.includes(String(N.settings.duration))) {   // 5s is not a length veo renders
-    N.settings.duration = veo ? "8" : DEFAULTS.duration;
-  }
-  for (const b of $("#durationSeg").querySelectorAll("button")) {
-    b.classList.toggle("on", String(N.settings.duration) === b.dataset.v);
+  // Veo renders 4, 6 or 8 seconds and nothing else, so it gets buttons. Kling takes any
+  // whole number from 3 to 15, which is a slider's job.
+  $("#durationSeg").hidden = !veo;
+  $("#durationSlider").hidden = veo;
+  if (veo) {
+    setHTML($("#durationSeg"), VEO_SECONDS.map(s => `<button data-v="${s}">${s}s</button>`).join(""));
+    if (!VEO_SECONDS.includes(String(N.settings.duration))) {
+      N.settings.duration = "8";                  // 5s is not a length veo renders
+    }
+    for (const b of $("#durationSeg").querySelectorAll("button")) {
+      b.classList.toggle("on", String(N.settings.duration) === b.dataset.v);
+    }
+  } else {
+    const secs = clampKlingSeconds(N.settings.duration);
+    N.settings.duration = String(secs);
+    $("#durationRange").value = String(secs);
+    $("#durationValue").textContent = `${secs}s`;
   }
   // each model reads different settings, so show only the ones in play — a greyed-out
   // row still invites a click and still has to be explained
@@ -2947,6 +2983,13 @@ function wire() {
     });
   }
   $("#soundToggle").addEventListener("change", e => { S.new.settings.sound = e.target.checked; renderNew(); saveDraft(); });
+  // "input" rather than "change", so the seconds and the credit total follow the thumb
+  // while it is being dragged; the price is the reason anyone touches this control
+  $("#durationRange").addEventListener("input", e => {
+    S.new.settings.duration = String(clampKlingSeconds(e.target.value));
+    renderNew();
+  });
+  $("#durationRange").addEventListener("change", saveDraft);
   $("#createBtn").onclick = createBatch;
 
   $("#bPrimaryBtn").onclick = e => {

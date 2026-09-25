@@ -1222,6 +1222,48 @@ class ServerTests(unittest.TestCase):
         with mock.patch.object(app, "urlopen", return_value=Resp("2.2.0")):
             self.assertIsNone(app.running_instance_url())
 
+    # ---- Kling clip length
+    #
+    # Kling renders any whole number of seconds from 3 to 15; the page used to offer
+    # only 5 and 10, so the lengths in between were reachable per clip but not for a
+    # whole batch.
+
+    def new(self, name, **settings):
+        return self.call("POST", "/api/batches",
+                         {"name": name, "clips": CLIPS, "settings": settings,
+                          "image_settings": {"resolution": "1K"}})
+
+    def test_a_length_between_the_old_two_is_accepted(self):
+        status, d = self.new("sevens", duration="7")
+        self.assertEqual(status, 200, d)
+        _, b = self.call("GET", "/api/batches/sevens")
+        self.assertEqual(b["settings"]["duration"], "7")
+
+    def test_both_ends_of_the_range_are_accepted(self):
+        for seconds in ("3", "15"):
+            status, d = self.new(f"edge{seconds}", duration=seconds)
+            self.assertEqual(status, 200, d)
+            _, b = self.call("GET", f"/api/batches/edge{seconds}")
+            self.assertEqual(b["settings"]["duration"], seconds)
+
+    def test_a_length_kling_cannot_render_is_refused_not_quietly_clamped(self):
+        status, d = self.new("toolong", duration="20")
+        self.assertEqual(status, 400, d)
+        self.assertIn("out of range", d["error"])
+
+    def test_veo_snaps_instead_of_being_refused(self):
+        # veo renders 4, 6 or 8; 5 is not one of them, but that is not an error
+        status, d = self.new("veodur", model="veo", duration="5")
+        self.assertEqual(status, 200, d)
+
+    def test_the_quoted_credits_follow_the_length(self):
+        self.new("five", duration="5")
+        self.new("eleven", duration="11")
+        _, a = self.call("GET", "/api/batches/five")
+        _, b = self.call("GET", "/api/batches/eleven")
+        self.assertEqual(b["clips"][0]["video_credits"],
+                         a["clips"][0]["video_credits"] / 5 * 11)
+
 
 if __name__ == "__main__":
     unittest.main()
